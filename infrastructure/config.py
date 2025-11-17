@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable, Literal
 
 from domain.interfaces import (
     ChunkSplitter,
@@ -12,13 +13,21 @@ from domain.interfaces import (
     Reranker,
     TextExtractor,
 )
+from infrastructure.embedding.character_ngram_embedder import CharacterNgramEmbedder
+from infrastructure.embedding.mean_word_hash_embedder import MeanWordHashEmbedder
 from infrastructure.embedding.minilm_embedder import MiniLMEmbedder
 from infrastructure.query.simple_reranker import SimpleReranker
 from infrastructure.query.simple_rewriter import SimpleQueryRewriter
 from infrastructure.repositories.sqlite_document_repository import SqliteDocumentRepository
 from infrastructure.splitting.fixed_window_splitter import FixedWindowSplitter
 from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
+from infrastructure.text_extraction.html_extractor import HtmlExtractor
 from infrastructure.text_extraction.pdf_extractor import PdfExtractor
+from infrastructure.text_extraction.plain_text_extractor import PlainTextExtractor
+
+
+ExtractorName = Literal["pdf", "plain", "html"]
+EmbedderName = Literal["minilm", "mean_word", "char_ngram"]
 
 
 @dataclass(slots=True)
@@ -34,12 +43,40 @@ class Container:
     reranker: Reranker
 
 
-def build_default_container() -> Container:
+@dataclass(slots=True)
+class ContainerConfig:
+    """Configuration for selecting extractor/embedder models."""
+
+    extractor: ExtractorName = "pdf"
+    embedder: EmbedderName = "minilm"
+
+
+_EXTRACTOR_FACTORIES: dict[ExtractorName, Callable[[], TextExtractor]] = {
+    "pdf": PdfExtractor,
+    "plain": PlainTextExtractor,
+    "html": HtmlExtractor,
+}
+
+_EMBEDDER_FACTORIES: dict[EmbedderName, Callable[[], Embedder]] = {
+    "minilm": MiniLMEmbedder,
+    "mean_word": MeanWordHashEmbedder,
+    "char_ngram": CharacterNgramEmbedder,
+}
+
+
+def build_default_container(config: ContainerConfig | None = None) -> Container:
     """Instantiate the default infrastructure stack."""
 
-    extractor = PdfExtractor()
+    cfg = config or ContainerConfig()
+    try:
+        extractor = _EXTRACTOR_FACTORIES[cfg.extractor]()
+    except KeyError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Unknown extractor '{cfg.extractor}'") from exc
     splitter = FixedWindowSplitter()
-    embedder = MiniLMEmbedder()
+    try:
+        embedder = _EMBEDDER_FACTORIES[cfg.embedder]()
+    except KeyError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Unknown embedder '{cfg.embedder}'") from exc
     embedding_store = InMemoryEmbeddingStore()
     document_repository = SqliteDocumentRepository()
     query_rewriter = SimpleQueryRewriter()
@@ -56,4 +93,4 @@ def build_default_container() -> Container:
     )
 
 
-__all__ = ["Container", "build_default_container"]
+__all__ = ["Container", "ContainerConfig", "build_default_container"]
