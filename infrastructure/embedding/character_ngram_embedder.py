@@ -13,8 +13,17 @@ class CharacterNgramEmbedder(Embedder):
     """Simple char n-gram embedder that supports multiple n sizes."""
 
     def __init__(self, dimension: int = 24, ngram_sizes: Sequence[int] | None = None) -> None:
-        self.dimension = dimension
+        self._dimension = dimension
+        self._model_id = f"hash-char-ngram-{dimension}"
         self.ngram_sizes = tuple(ngram_sizes or (3, 4, 5))
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
 
     def _ngrams(self, text: str) -> list[str]:
         clean = text.replace("\n", " ")
@@ -31,10 +40,10 @@ class CharacterNgramEmbedder(Embedder):
 
     def _vectorize(self, text: str) -> list[float]:
         grams = self._ngrams(text)
-        vector = [0.0] * self.dimension
+        vector = [0.0] * self._dimension
         for gram in grams:
             digest = hashlib.sha1(gram.encode("utf-8")).digest()
-            for idx in range(self.dimension):
+            for idx in range(self._dimension):
                 vector[idx] += digest[idx % len(digest)] / 255.0
         norm = math.sqrt(sum(value * value for value in vector)) or 1.0
         return [value / norm for value in vector]

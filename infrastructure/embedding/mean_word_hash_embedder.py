@@ -14,18 +14,27 @@ class MeanWordHashEmbedder(Embedder):
     """Produces deterministic vectors by hashing individual words."""
 
     def __init__(self, dimension: int = 32) -> None:
-        self.dimension = dimension
+        self._dimension = dimension
+        self._model_id = f"hash-mean-word-{dimension}"
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
 
     def _word_vector(self, word: str) -> list[float]:
         digest = hashlib.md5(word.encode("utf-8")).digest()
-        vector = [digest[i % len(digest)] / 255.0 for i in range(self.dimension)]
+        vector = [digest[i % len(digest)] / 255.0 for i in range(self._dimension)]
         return vector
 
     def _combine(self, words: Sequence[str]) -> list[float]:
         if not words:
-            return [0.0] * self.dimension
+            return [0.0] * self._dimension
         counts = Counter(word.lower() for word in words if word.strip())
-        vector = [0.0] * self.dimension
+        vector = [0.0] * self._dimension
         total = sum(counts.values()) or 1
         for word, count in counts.items():
             word_vec = self._word_vector(word)

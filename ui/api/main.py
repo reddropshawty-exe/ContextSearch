@@ -14,7 +14,7 @@ container = build_default_container()
 
 
 class DocumentPayload(BaseModel):
-    id: str
+    id: str | None = None
     content: str
 
 

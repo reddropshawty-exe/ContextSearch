@@ -11,7 +11,8 @@ from domain.interfaces import EmbeddingStore
 class InMemoryEmbeddingStore(EmbeddingStore):
     """Stores embeddings in Python lists and performs brute-force search."""
 
-    def __init__(self) -> None:
+    def __init__(self, collection_id: str = "in-memory") -> None:
+        self.collection_id = collection_id
         self._entries: list[tuple[Chunk, list[float]]] = []
 
     def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
