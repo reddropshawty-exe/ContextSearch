@@ -1,15 +1,61 @@
 # ContextSearch
 Решение для удобного контекстного поиска документов на компьютере
 
+## Установка зависимостей
+Для локального запуска установите зависимости:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+## Запуск приложения
+### Локально
+Основной UI (Tkinter, macOS first):
+
+```bash
+python -m ui.tkinter_app
+```
+
+API (FastAPI):
+
+```bash
+uvicorn ui.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Web-интерфейс (Streamlit):
+
+```bash
+streamlit run ui/web/app.py --server.address 0.0.0.0 --server.port 8501
+```
+
+### Через Docker (быстрый старт)
+Соберите и запустите API и Streamlit-демо одной командой:
+
+```bash
+docker compose up --build
+```
+
+После запуска:
+- API доступен на `http://localhost:8000`
+- Streamlit UI доступен на `http://localhost:8501`
+
+## Артефакты
+После индексации на диске появятся:
+
+- SQLite база: `contextsearch.db`
+- Индексы FAISS: `indexes/<collection_id>/`
+
 ## Инфраструктурные модели
 В проекте доступно несколько вариантов экстракторов и эмбеддеров, которые можно
 подобрать под разные источники данных:
 
 - **Экстракторы:**
-  - `PdfExtractor` — базовый вариант, интерпретирующий вход как текст.
+  - `PdfExtractor` — извлекает текст через pdfplumber.
+  - `DocxExtractor` — извлекает текст из DOCX (параграфы и таблицы).
   - `PlainTextExtractor` — для уже очищенных текстов/логов.
-  - `HtmlExtractor` — удаляет HTML‑теги и нормализует пробелы.
+  - `HtmlExtractor` — удаляет HTML‑теги и игнорирует `<script>/<style>`.
 - **Эмбеддеры:**
+  - `SentenceTransformersEmbedder` — реальные модели (MiniLM, MPNet, E5, EmbeddingGemma).
   - `MiniLMEmbedder` — хешевый аналог sentence-transformer’а.
   - `MeanWordHashEmbedder` — усреднение словарных векторов.
   - `CharacterNgramEmbedder` — нграммный вариант, устойчивый к опечаткам.

@@ -37,5 +37,16 @@ def search(
                 result.document = document_repository.get(result.chunk.document_id)
         aggregated_results.extend(results)
 
-    reranked = reranker.rerank(query, aggregated_results)
+    deduped = _deduplicate_results(aggregated_results)
+    reranked = reranker.rerank(query, deduped)
     return reranked[:top_k]
+
+
+def _deduplicate_results(results: list[RetrievalResult]) -> list[RetrievalResult]:
+    merged: dict[str, RetrievalResult] = {}
+    for result in results:
+        chunk_id = result.chunk.id
+        existing = merged.get(chunk_id)
+        if existing is None or result.score > existing.score:
+            merged[chunk_id] = result
+    return list(merged.values())

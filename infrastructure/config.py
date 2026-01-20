@@ -16,18 +16,37 @@ from domain.interfaces import (
 from infrastructure.embedding.character_ngram_embedder import CharacterNgramEmbedder
 from infrastructure.embedding.mean_word_hash_embedder import MeanWordHashEmbedder
 from infrastructure.embedding.minilm_embedder import MiniLMEmbedder
+from infrastructure.embedding.sentence_transformers_embedder import (
+    SentenceTransformersConfig,
+    SentenceTransformersEmbedder,
+)
+from infrastructure.query.llm_rewriter import LLMQueryRewriter, LLMRewriterConfig
 from infrastructure.query.simple_reranker import SimpleReranker
 from infrastructure.query.simple_rewriter import SimpleQueryRewriter
 from infrastructure.repositories.sqlite_document_repository import SqliteDocumentRepository
 from infrastructure.splitting.fixed_window_splitter import FixedWindowSplitter
+from infrastructure.storage.faiss_embedding_store import FaissCollection, FaissEmbeddingStore
 from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
+from infrastructure.text_extraction.docx_extractor import DocxExtractor
 from infrastructure.text_extraction.html_extractor import HtmlExtractor
 from infrastructure.text_extraction.pdf_extractor import PdfExtractor
 from infrastructure.text_extraction.plain_text_extractor import PlainTextExtractor
 
 
-ExtractorName = Literal["pdf", "plain", "html"]
-EmbedderName = Literal["minilm", "mean_word", "char_ngram"]
+ExtractorName = Literal["pdf", "plain", "html", "docx"]
+EmbedderName = Literal[
+    "hash-minilm",
+    "hash-mean-word",
+    "hash-char-ngram",
+    "all-minilm",
+    "all-mpnet",
+    "multilingual-e5-base",
+    "embedding-gemma",
+]
+RewriterName = Literal["simple", "llm"]
+RewriterProvider = Literal["ollama", "openai"]
+EmbeddingStoreName = Literal["in_memory", "faiss"]
+ProfileName = Literal["stable", "experimental"]
 
 
 @dataclass(slots=True)
@@ -48,19 +67,31 @@ class ContainerConfig:
     """Configuration for selecting extractor/embedder models."""
 
     extractor: ExtractorName = "pdf"
-    embedder: EmbedderName = "minilm"
+    embedder: EmbedderName = "all-minilm"
+    rewriter: RewriterName = "simple"
+    rewriter_provider: RewriterProvider = "ollama"
+    embedding_store: EmbeddingStoreName = "faiss"
+    profile: ProfileName = "stable"
+    collection_id: str | None = None
+    device: str = "cpu"
+    normalize_embeddings: bool = True
+    embeddinggemma_model: str = "google/embeddinggemma-300m"
+    ollama_model: str = "llama3.1"
+    ollama_url: str = "http://localhost:11434"
+    openai_model: str = "gpt-4o-mini"
 
 
 _EXTRACTOR_FACTORIES: dict[ExtractorName, Callable[[], TextExtractor]] = {
     "pdf": PdfExtractor,
     "plain": PlainTextExtractor,
     "html": HtmlExtractor,
+    "docx": DocxExtractor,
 }
 
 _EMBEDDER_FACTORIES: dict[EmbedderName, Callable[[], Embedder]] = {
-    "minilm": MiniLMEmbedder,
-    "mean_word": MeanWordHashEmbedder,
-    "char_ngram": CharacterNgramEmbedder,
+    "hash-minilm": MiniLMEmbedder,
+    "hash-mean-word": MeanWordHashEmbedder,
+    "hash-char-ngram": CharacterNgramEmbedder,
 }
 
 
@@ -73,13 +104,10 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
     except KeyError as exc:  # pragma: no cover - defensive
         raise ValueError(f"Unknown extractor '{cfg.extractor}'") from exc
     splitter = FixedWindowSplitter()
-    try:
-        embedder = _EMBEDDER_FACTORIES[cfg.embedder]()
-    except KeyError as exc:  # pragma: no cover - defensive
-        raise ValueError(f"Unknown embedder '{cfg.embedder}'") from exc
-    embedding_store = InMemoryEmbeddingStore()
-    document_repository = SqliteDocumentRepository()
-    query_rewriter = SimpleQueryRewriter()
+    embedder = _build_embedder(cfg)
+    embedding_store = _build_embedding_store(cfg, embedder)
+    document_repository = SqliteDocumentRepository(db_path="contextsearch.db")
+    query_rewriter = _build_rewriter(cfg)
     reranker = SimpleReranker()
 
     return Container(
@@ -91,6 +119,67 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
         query_rewriter=query_rewriter,
         reranker=reranker,
     )
+
+
+def _build_embedder(config: ContainerConfig) -> Embedder:
+    if config.embedder in _EMBEDDER_FACTORIES:
+        return _EMBEDDER_FACTORIES[config.embedder]()
+
+    model_config = _sentence_model_config(config)
+    return SentenceTransformersEmbedder(model_config)
+
+
+def _sentence_model_config(config: ContainerConfig) -> SentenceTransformersConfig:
+    query_prefix = None
+    passage_prefix = None
+    model_name = config.embeddinggemma_model
+    if config.embedder == "all-minilm":
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+    elif config.embedder == "all-mpnet":
+        model_name = "sentence-transformers/all-mpnet-base-v2"
+    elif config.embedder == "multilingual-e5-base":
+        model_name = "intfloat/multilingual-e5-base"
+        query_prefix = "query: "
+        passage_prefix = "passage: "
+    elif config.embedder == "embedding-gemma":
+        model_name = config.embeddinggemma_model
+    return SentenceTransformersConfig(
+        model_name=model_name,
+        device=config.device,
+        normalize_embeddings=config.normalize_embeddings,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
+    )
+
+
+def _build_embedding_store(config: ContainerConfig, embedder: Embedder) -> EmbeddingStore:
+    if config.embedding_store == "in_memory":
+        return InMemoryEmbeddingStore(collection_id="in-memory")
+
+    collection_id = config.collection_id or ("stable" if config.profile == "stable" else "experimental")
+    collection = FaissCollection(
+        collection_id=collection_id,
+        model_id=embedder.model_id,
+        dimension=embedder.dimension,
+    )
+    return FaissEmbeddingStore(
+        collection=collection,
+        index_root="indexes",
+        db_path="contextsearch.db",
+        normalize_embeddings=config.normalize_embeddings,
+    )
+
+
+def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
+    if config.rewriter == "llm":
+        return LLMQueryRewriter(
+            LLMRewriterConfig(
+                provider=config.rewriter_provider,
+                model=config.ollama_model if config.rewriter_provider == "ollama" else config.openai_model,
+                ollama_url=config.ollama_url,
+            )
+        )
+    return SimpleQueryRewriter()
 
 
 __all__ = ["Container", "ContainerConfig", "build_default_container"]

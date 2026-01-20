@@ -26,6 +26,16 @@ class ChunkSplitter(ABC):
 class Embedder(ABC):
     """Turns text (documents or queries) into vector embeddings."""
 
+    @property
+    @abstractmethod
+    def model_id(self) -> str:
+        """Return the stable identifier for this embedding model."""
+
+    @property
+    @abstractmethod
+    def dimension(self) -> int:
+        """Return the embedding dimension for this model."""
+
     @abstractmethod
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         """Embed an iterable of texts into dense vectors."""
@@ -37,6 +47,8 @@ class Embedder(ABC):
 
 class EmbeddingStore(ABC):
     """Persists embeddings and provides similarity search."""
+
+    collection_id: str
 
     @abstractmethod
     def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
@@ -63,6 +75,18 @@ class DocumentRepository(ABC):
         """Retrieve a document by id."""
 
 
+class ChunkRepository(ABC):
+    """Persists chunk metadata and content."""
+
+    @abstractmethod
+    def add(self, chunk: Chunk) -> int:
+        """Store a chunk and return its integer id."""
+
+    @abstractmethod
+    def get(self, chunk_id: int) -> Chunk | None:
+        """Retrieve a chunk by id."""
+
+
 class QueryRewriter(ABC):
     """Allows experimentation with query rewriting strategies."""
 
@@ -85,6 +109,7 @@ __all__ = [
     "Embedder",
     "EmbeddingStore",
     "DocumentRepository",
+    "ChunkRepository",
     "QueryRewriter",
     "Reranker",
 ]

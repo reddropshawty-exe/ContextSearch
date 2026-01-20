@@ -13,19 +13,18 @@ st.title("ContextSearch Demo")
 
 st.header("Ingest")
 ingest_form = st.form("ingest")
-document_id = ingest_form.text_input("Document ID", value="doc-1")
 document_content = ingest_form.text_area("Content", value="Type your document here...")
 ingest_submit = ingest_form.form_submit_button("Ingest document")
 if ingest_submit:
     ingest_documents(
-        [(document_id, document_content)],
+        [(None, document_content)],
         extractor=container.extractor,
         splitter=container.splitter,
         embedder=container.embedder,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
     )
-    st.success(f"Document {document_id} ingested")
+    st.success("Document ingested")
 
 st.header("Search")
 search_query = st.text_input("Query", value="context search")
