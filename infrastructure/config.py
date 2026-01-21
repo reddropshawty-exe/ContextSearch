@@ -1,4 +1,4 @@
-"""Dependency wiring for the ContextSearch application."""
+"""Настройка зависимостей для приложения ContextSearch."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -44,14 +44,13 @@ EmbedderName = Literal[
     "embedding-gemma",
 ]
 RewriterName = Literal["simple", "llm"]
-RewriterProvider = Literal["ollama", "openai"]
 EmbeddingStoreName = Literal["in_memory", "faiss"]
 ProfileName = Literal["stable", "experimental"]
 
 
 @dataclass(slots=True)
 class Container:
-    """Simple container bundling concrete infrastructure implementations."""
+    """Простой контейнер с конкретными инфраструктурными реализациями."""
 
     extractor: TextExtractor
     splitter: ChunkSplitter
@@ -64,21 +63,18 @@ class Container:
 
 @dataclass(slots=True)
 class ContainerConfig:
-    """Configuration for selecting extractor/embedder models."""
+    """Конфигурация выбора экстракторов и эмбеддеров."""
 
     extractor: ExtractorName = "pdf"
     embedder: EmbedderName = "all-minilm"
     rewriter: RewriterName = "simple"
-    rewriter_provider: RewriterProvider = "ollama"
     embedding_store: EmbeddingStoreName = "faiss"
     profile: ProfileName = "stable"
     collection_id: str | None = None
     device: str = "cpu"
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
-    ollama_model: str = "llama3.1"
-    ollama_url: str = "http://localhost:11434"
-    openai_model: str = "gpt-4o-mini"
+    local_rewriter_model: str = "google/flan-t5-small"
 
 
 _EXTRACTOR_FACTORIES: dict[ExtractorName, Callable[[], TextExtractor]] = {
@@ -96,13 +92,13 @@ _EMBEDDER_FACTORIES: dict[EmbedderName, Callable[[], Embedder]] = {
 
 
 def build_default_container(config: ContainerConfig | None = None) -> Container:
-    """Instantiate the default infrastructure stack."""
+    """Создать стандартный набор инфраструктурных компонентов."""
 
     cfg = config or ContainerConfig()
     try:
         extractor = _EXTRACTOR_FACTORIES[cfg.extractor]()
-    except KeyError as exc:  # pragma: no cover - defensive
-        raise ValueError(f"Unknown extractor '{cfg.extractor}'") from exc
+    except KeyError as exc:  # pragma: no cover - защитный код
+        raise ValueError(f"Неизвестный экстрактор '{cfg.extractor}'") from exc
     splitter = FixedWindowSplitter()
     embedder = _build_embedder(cfg)
     embedding_store = _build_embedding_store(cfg, embedder)
@@ -174,9 +170,7 @@ def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
     if config.rewriter == "llm":
         return LLMQueryRewriter(
             LLMRewriterConfig(
-                provider=config.rewriter_provider,
-                model=config.ollama_model if config.rewriter_provider == "ollama" else config.openai_model,
-                ollama_url=config.ollama_url,
+                model=config.local_rewriter_model,
             )
         )
     return SimpleQueryRewriter()

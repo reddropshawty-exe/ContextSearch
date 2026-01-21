@@ -1,4 +1,4 @@
-"""Embedder that averages hashed word vectors (GloVe-like toy model)."""
+"""Эмбеддер, усредняющий хэшированные векторы слов (упрощённый GloVe)."""
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +11,7 @@ from domain.interfaces import Embedder
 
 
 class MeanWordHashEmbedder(Embedder):
-    """Produces deterministic vectors by hashing individual words."""
+    """Создаёт детерминированные векторы, хэшируя отдельные слова."""
 
     def __init__(self, dimension: int = 32) -> None:
         self._dimension = dimension

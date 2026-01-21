@@ -1,4 +1,4 @@
-"""PDF extractor using pdfplumber."""
+"""PDF-экстрактор на базе pdfplumber."""
 from __future__ import annotations
 
 from io import BytesIO
@@ -10,7 +10,7 @@ from domain.interfaces import TextExtractor
 
 
 class PdfExtractor(TextExtractor):
-    """Extracts text from PDF bytes or file paths."""
+    """Извлекает текст из PDF-байтов или путей к файлам."""
 
     def extract(self, source: bytes | str) -> str:
         if isinstance(source, bytes):

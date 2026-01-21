@@ -1,4 +1,4 @@
-"""Tkinter UI for local indexing and search."""
+"""Tkinter-интерфейс для локальной индексации и поиска."""
 from __future__ import annotations
 
 import os
@@ -32,44 +32,44 @@ class ContextSearchApp:
         settings = Frame(self.root)
         settings.pack(padx=10, pady=10)
 
-        Label(settings, text="Profile").pack(side=LEFT)
+        Label(settings, text="Профиль").pack(side=LEFT)
         Combobox(settings, textvariable=self.profile_var, values=["stable", "experimental"], width=12).pack(
             side=LEFT, padx=5
         )
-        Label(settings, text="Embedder").pack(side=LEFT)
+        Label(settings, text="Эмбеддер").pack(side=LEFT)
         Combobox(
             settings,
             textvariable=self.embedder_var,
             values=["all-minilm", "all-mpnet", "multilingual-e5-base", "embedding-gemma"],
             width=22,
         ).pack(side=LEFT, padx=5)
-        Label(settings, text="Rewriter").pack(side=LEFT)
-        Combobox(settings, textvariable=self.rewriter_var, values=["simple", "llm"], width=10).pack(
+        Label(settings, text="Переписыватель").pack(side=LEFT)
+        Combobox(settings, textvariable=self.rewriter_var, values=["simple", "llm"], width=12).pack(
             side=LEFT, padx=5
         )
-        Label(settings, text="Collection").pack(side=LEFT)
+        Label(settings, text="Коллекция").pack(side=LEFT)
         Entry(settings, textvariable=self.collection_var, width=18).pack(side=LEFT, padx=5)
 
         controls = Frame(self.root)
         controls.pack(padx=10, pady=5)
-        Button(controls, text="Choose Folder", command=self.choose_folder).pack(side=LEFT, padx=5)
-        Button(controls, text="Choose Files", command=self.choose_files).pack(side=LEFT, padx=5)
-        Button(controls, text="Index", command=self.index_documents).pack(side=LEFT, padx=5)
+        Button(controls, text="Выбрать папку", command=self.choose_folder).pack(side=LEFT, padx=5)
+        Button(controls, text="Выбрать файлы", command=self.choose_files).pack(side=LEFT, padx=5)
+        Button(controls, text="Индексировать", command=self.index_documents).pack(side=LEFT, padx=5)
 
         self.paths_list = Listbox(self.root, width=80, height=6)
         self.paths_list.pack(padx=10, pady=5)
 
         search_frame = Frame(self.root)
         search_frame.pack(padx=10, pady=5)
-        Label(search_frame, text="Query").pack(side=LEFT)
+        Label(search_frame, text="Запрос").pack(side=LEFT)
         self.query_entry = Entry(search_frame, width=50)
         self.query_entry.pack(side=LEFT, padx=5)
-        Button(search_frame, text="Search", command=self.search_query).pack(side=LEFT, padx=5)
+        Button(search_frame, text="Найти", command=self.search_query).pack(side=LEFT, padx=5)
 
         self.results_list = Listbox(self.root, width=100, height=10)
         self.results_list.pack(padx=10, pady=5)
 
-        Button(self.root, text="Open Selected", command=self.open_selected).pack(pady=5)
+        Button(self.root, text="Открыть выбранный", command=self.open_selected).pack(pady=5)
 
     def build_container(self):
         profile = self.profile_var.get()
@@ -96,8 +96,8 @@ class ContextSearchApp:
     def choose_files(self) -> None:
         files = filedialog.askopenfilenames(
             filetypes=[
-                ("Documents", "*.pdf *.docx *.txt *.md *.html *.htm"),
-                ("All files", "*.*"),
+                ("Документы", "*.pdf *.docx *.txt *.md *.html *.htm"),
+                ("Все файлы", "*.*"),
             ]
         )
         for file_path in files:
@@ -106,7 +106,7 @@ class ContextSearchApp:
 
     def index_documents(self) -> None:
         if not self.paths:
-            messagebox.showinfo("ContextSearch", "Please select files or a folder first.")
+            messagebox.showinfo("ContextSearch", "Сначала выберите файлы или папку.")
             return
         container = self.build_container()
         report = ingest_paths(
@@ -118,15 +118,15 @@ class ContextSearchApp:
         )
         self.paths.clear()
         self.paths_list.delete(0, END)
-        message = f"Indexed {report.indexed}/{report.total} documents."
+        message = f"Проиндексировано {report.indexed}/{report.total} документов."
         if report.errors:
-            message += f" Errors: {len(report.errors)}"
+            message += f" Ошибок: {len(report.errors)}"
         messagebox.showinfo("ContextSearch", message)
 
     def search_query(self) -> None:
         query = self.query_entry.get().strip()
         if not query:
-            messagebox.showinfo("ContextSearch", "Enter a search query.")
+            messagebox.showinfo("ContextSearch", "Введите поисковый запрос.")
             return
         container = self.build_container()
         results = search(
@@ -145,7 +145,7 @@ class ContextSearchApp:
             snippet = result.chunk.text.replace("\n", " ")[:120]
             line = (
                 f"{display_name or result.chunk.document_id} | "
-                f"score={result.score:.3f} | {snippet} | {source_uri}"
+                f"оценка={result.score:.3f} | {snippet} | {source_uri}"
             )
             self.results.append({"source_uri": source_uri})
             self.results_list.insert(END, line)
@@ -153,12 +153,12 @@ class ContextSearchApp:
     def open_selected(self) -> None:
         selection = self.results_list.curselection()
         if not selection:
-            messagebox.showinfo("ContextSearch", "Select a result to open.")
+            messagebox.showinfo("ContextSearch", "Выберите результат для открытия.")
             return
         index = selection[0]
         path = self.results[index]["source_uri"]
         if not path or not Path(path).exists():
-            messagebox.showwarning("ContextSearch", "File not found.")
+            messagebox.showwarning("ContextSearch", "Файл не найден.")
             return
         self._open_path(path)
 

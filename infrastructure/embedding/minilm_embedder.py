@@ -1,4 +1,4 @@
-"""Lightweight embedder that simulates MiniLM embeddings."""
+"""Лёгкий эмбеддер, имитирующий MiniLM-векторы."""
 from __future__ import annotations
 
 import hashlib
@@ -10,7 +10,7 @@ from domain.interfaces import Embedder
 
 
 class MiniLMEmbedder(Embedder):
-    """Deterministic hash-based embedder useful for demos/tests."""
+    """Детерминированный хэш-эмбеддер для демо и тестов."""
 
     def __init__(self, dimension: int = 16) -> None:
         self._dimension = dimension

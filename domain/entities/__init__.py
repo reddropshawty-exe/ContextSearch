@@ -1,4 +1,4 @@
-"""Domain entities for the ContextSearch system."""
+"""Доменные сущности системы ContextSearch."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,7 +7,7 @@ from typing import Any
 
 @dataclass(slots=True)
 class Document:
-    """Represents a raw document that can be ingested."""
+    """Представляет сырой документ, который можно индексировать."""
 
     id: str
     content: str
@@ -16,7 +16,7 @@ class Document:
 
 @dataclass(slots=True)
 class Chunk:
-    """A chunk of a larger document used for retrieval."""
+    """Фрагмент документа, используемый для поиска."""
 
     id: str
     document_id: str
@@ -26,7 +26,7 @@ class Chunk:
 
 @dataclass(slots=True)
 class Query:
-    """A user query issued to the system."""
+    """Пользовательский поисковый запрос."""
 
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -34,7 +34,7 @@ class Query:
 
 @dataclass(slots=True)
 class RetrievalResult:
-    """Result returned after running retrieval for a query."""
+    """Результат поиска по запросу."""
 
     chunk: Chunk
     score: float

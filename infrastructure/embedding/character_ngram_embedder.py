@@ -1,4 +1,4 @@
-"""Embedder that uses hashed character n-grams (FastText-like toy)."""
+"""Эмбеддер на основе хэшированных символьных n-грамм (упрощённый FastText)."""
 from __future__ import annotations
 
 import hashlib
@@ -10,7 +10,7 @@ from domain.interfaces import Embedder
 
 
 class CharacterNgramEmbedder(Embedder):
-    """Simple char n-gram embedder that supports multiple n sizes."""
+    """Простой эмбеддер символьных n-грамм с поддержкой нескольких размеров."""
 
     def __init__(self, dimension: int = 24, ngram_sizes: Sequence[int] | None = None) -> None:
         self._dimension = dimension

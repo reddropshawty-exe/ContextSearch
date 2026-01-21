@@ -1,4 +1,4 @@
-"""SQLite-backed repository for chunks."""
+"""SQLite-репозиторий для чанков."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,7 @@ from domain.interfaces import ChunkRepository
 
 
 class SqliteChunkRepository(ChunkRepository):
-    """Stores chunks inside the shared SQLite database."""
+    """Хранит чанки в общей SQLite-базе."""
 
     def __init__(self, db_path: str | Path = "contextsearch.db") -> None:
         self._db_path = Path(db_path)

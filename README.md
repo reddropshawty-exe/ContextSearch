@@ -87,7 +87,7 @@ docker compose up --build
 - **Настоящие эмбеддинги и storage.** Интегрировать sentence-transformers,
   fastText или open-source LLM, заменить in-memory store на FAISS/Qdrant и
   прописать конфигурацию подключения.
-- **Сложные пайплайны запросов.** Добавить LLM‑переписывание, BM25‑retrieval и
-  cross-encoder reranking, а также гибкие параметры top‑K и агрегации.
+- **Сложные пайплайны запросов.** Добавить LLM‑переписывание (локальные модели),
+  BM25‑retrieval и cross-encoder reranking, а также гибкие параметры top‑K и агрегации.
 - **Наблюдаемость и тесты.** Ввести unit-тесты для use cases, structured logging
   в API, сбор метрик и сохранение результатов экспериментов.

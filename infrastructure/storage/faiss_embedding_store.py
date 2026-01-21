@@ -1,4 +1,4 @@
-"""FAISS-based embedding store with persistence and collections."""
+"""Хранилище эмбеддингов на FAISS с персистентностью и коллекциями."""
 from __future__ import annotations
 
 import json
@@ -25,7 +25,7 @@ class FaissCollection:
 
 
 class FaissEmbeddingStore(EmbeddingStore):
-    """FAISS-backed embedding store that persists vectors to disk."""
+    """FAISS-хранилище, сохраняющее векторы на диск."""
 
     def __init__(
         self,
@@ -50,9 +50,9 @@ class FaissEmbeddingStore(EmbeddingStore):
         if self._meta_path.exists():
             stored = json.loads(self._meta_path.read_text(encoding="utf-8"))
             if stored.get("dimension") != self._collection.dimension:
-                raise ValueError("FAISS collection dimension mismatch.")
+                raise ValueError("Несовпадение размерности коллекции FAISS.")
             if stored.get("model_id") != self._collection.model_id:
-                raise ValueError("FAISS collection model mismatch.")
+                raise ValueError("Несовпадение модели коллекции FAISS.")
         else:
             self._meta_path.write_text(json.dumps(asdict(self._collection), indent=2), encoding="utf-8")
 
@@ -73,7 +73,7 @@ class FaissEmbeddingStore(EmbeddingStore):
         if not chunks:
             return
         if any(len(vector) != self._collection.dimension for vector in embeddings):
-            raise ValueError("Embedding dimension does not match FAISS collection.")
+            raise ValueError("Размерность эмбеддингов не совпадает с коллекцией FAISS.")
 
         vectors = np.array(embeddings, dtype="float32")
         if self._normalize_embeddings:

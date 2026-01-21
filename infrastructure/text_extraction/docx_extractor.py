@@ -1,4 +1,4 @@
-"""DOCX extractor using python-docx."""
+"""Экстрактор DOCX на базе python-docx."""
 from __future__ import annotations
 
 from io import BytesIO
@@ -10,7 +10,7 @@ from domain.interfaces import TextExtractor
 
 
 class DocxExtractor(TextExtractor):
-    """Extracts text from DOCX sources."""
+    """Извлекает текст из источников DOCX."""
 
     def extract(self, source: bytes | str) -> str:
         if isinstance(source, bytes):

@@ -1,4 +1,4 @@
-"""Sentence-transformers based embedder implementations."""
+"""Эмбеддеры на базе sentence-transformers."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +21,7 @@ class SentenceTransformersConfig:
 
 
 class SentenceTransformersEmbedder(Embedder):
-    """Embedder backed by the sentence-transformers library."""
+    """Эмбеддер на базе библиотеки sentence-transformers."""
 
     def __init__(self, config: SentenceTransformersConfig) -> None:
         self._config = config

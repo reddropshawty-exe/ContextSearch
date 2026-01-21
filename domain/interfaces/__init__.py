@@ -1,4 +1,4 @@
-"""Abstract interfaces for the ContextSearch system."""
+"""Абстрактные интерфейсы системы ContextSearch."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -8,23 +8,33 @@ from domain.entities import Chunk, Document, Query, RetrievalResult
 
 
 class TextExtractor(ABC):
-    """Extracts text from user provided sources (files, URLs, etc.)."""
+    """Извлекает текст из источников пользователя (файлы, URL и т.д.)."""
 
     @abstractmethod
     def extract(self, source: bytes | str) -> str:
-        """Return the textual representation of a source."""
+        """Вернуть текстовое представление источника."""
 
 
 class ChunkSplitter(ABC):
-    """Splits documents into semantic chunks for retrieval."""
+    """Делит документы на чанки для поиска."""
 
     @abstractmethod
     def split(self, document: Document) -> list[Chunk]:
-        """Return chunks for the provided document."""
+        """Вернуть чанки для заданного документа."""
 
 
 class Embedder(ABC):
-    """Turns text (documents or queries) into vector embeddings."""
+    """Преобразует текст (документы или запросы) в векторные эмбеддинги."""
+
+    @property
+    @abstractmethod
+    def model_id(self) -> str:
+        """Вернуть стабильный идентификатор модели эмбеддингов."""
+
+    @property
+    @abstractmethod
+    def dimension(self) -> int:
+        """Вернуть размерность эмбеддингов модели."""
 
     @property
     @abstractmethod
@@ -38,41 +48,55 @@ class Embedder(ABC):
 
     @abstractmethod
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed an iterable of texts into dense vectors."""
+        """Преобразовать список текстов в плотные вектора."""
 
     @abstractmethod
     def embed_query(self, query: Query) -> list[float]:
-        """Embed a user query for retrieval."""
+        """Преобразовать запрос пользователя в вектор для поиска."""
 
 
 class EmbeddingStore(ABC):
-    """Persists embeddings and provides similarity search."""
+    """Хранит эмбеддинги и выполняет поиск по сходству."""
+
+    collection_id: str
 
     collection_id: str
 
     @abstractmethod
     def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
-        """Store embeddings for the provided chunks."""
+        """Сохранить эмбеддинги для указанных чанков."""
 
     @abstractmethod
     def search(self, query_embedding: Sequence[float], top_k: int = 5) -> list[RetrievalResult]:
-        """Return the best matching chunks for the provided query embedding."""
+        """Вернуть лучшие совпадения для эмбеддинга запроса."""
 
 
 class DocumentRepository(ABC):
-    """Persists metadata for documents."""
+    """Хранит метаданные документов."""
 
     @abstractmethod
     def add(self, document: Document) -> None:
-        """Store a document record."""
+        """Сохранить документ."""
 
     @abstractmethod
     def list(self) -> list[Document]:
-        """Return all stored documents."""
+        """Вернуть список всех документов."""
 
     @abstractmethod
     def get(self, document_id: str) -> Document | None:
-        """Retrieve a document by id."""
+        """Получить документ по идентификатору."""
+
+
+class ChunkRepository(ABC):
+    """Хранит метаданные и содержимое чанков."""
+
+    @abstractmethod
+    def add(self, chunk: Chunk) -> int:
+        """Сохранить чанк и вернуть его числовой идентификатор."""
+
+    @abstractmethod
+    def get(self, chunk_id: int) -> Chunk | None:
+        """Получить чанк по идентификатору."""
 
 
 class ChunkRepository(ABC):
@@ -88,19 +112,19 @@ class ChunkRepository(ABC):
 
 
 class QueryRewriter(ABC):
-    """Allows experimentation with query rewriting strategies."""
+    """Позволяет экспериментировать со стратегиями переписывания запросов."""
 
     @abstractmethod
     def rewrite(self, query: Query) -> list[Query]:
-        """Return rewritten variants for the provided query."""
+        """Вернуть варианты переписанного запроса."""
 
 
 class Reranker(ABC):
-    """Applies a reranking strategy after initial retrieval."""
+    """Применяет стратегию переранжирования после первичного поиска."""
 
     @abstractmethod
     def rerank(self, query: Query, results: Iterable[RetrievalResult]) -> list[RetrievalResult]:
-        """Return a reranked list of retrieval results."""
+        """Вернуть список результатов после переранжирования."""
 
 
 __all__ = [

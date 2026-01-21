@@ -1,4 +1,4 @@
-"""Utility use case that helps run retrieval experiments."""
+"""Вспомогательный сценарий использования для экспериментов поиска."""
 from __future__ import annotations
 
 from statistics import mean
@@ -24,7 +24,7 @@ def run_experiment(
     reranker: Reranker,
     top_k: int = 5,
 ) -> dict[str, float | list[RetrievalResult]]:
-    """Run the search use case for multiple queries and collect metrics."""
+    """Запустить поиск по нескольким запросам и собрать метрики."""
 
     per_query_results: dict[str, list[RetrievalResult]] = {}
     recall_values: list[float] = []

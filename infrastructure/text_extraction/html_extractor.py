@@ -1,4 +1,4 @@
-"""HTML extractor that strips tags and normalises whitespace."""
+"""HTML-экстрактор, удаляющий теги и нормализующий пробелы."""
 from __future__ import annotations
 
 from html.parser import HTMLParser
@@ -20,7 +20,7 @@ class _CollectingParser(HTMLParser):
         if tag in {"script", "style"} and self._ignored_depth > 0:
             self._ignored_depth -= 1
 
-    def handle_data(self, data: str) -> None:  # pragma: no cover - trivial
+    def handle_data(self, data: str) -> None:  # pragma: no cover - тривиально
         if self._ignored_depth:
             return
         if data.strip():
@@ -33,7 +33,7 @@ class _CollectingParser(HTMLParser):
 
 
 class HtmlExtractor(TextExtractor):
-    """Very small HTML extractor using Python's built-in parser."""
+    """Минимальный HTML-экстрактор на базе встроенного парсера Python."""
 
     def extract(self, source: bytes | str) -> str:
         if isinstance(source, bytes):

@@ -46,7 +46,7 @@ def ingest_paths(
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
 ) -> IngestReport:
-    """Ingest documents from a list of file or directory paths."""
+    """Индексировать документы по списку файлов или директорий."""
 
     files = _collect_files(paths)
     report = IngestReport(total=len(files), indexed=0)
@@ -59,7 +59,7 @@ def ingest_paths(
             raw_bytes = path.read_bytes()
             text = extractor.extract(raw_bytes)
             metadata["content_hash"] = sha256(raw_bytes).hexdigest()
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - защитный код
             metadata["error"] = str(exc)
             document = Document(id=_document_id(path, metadata), content="", metadata=metadata)
             document_repository.add(document)

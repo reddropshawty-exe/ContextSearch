@@ -1,4 +1,4 @@
-"""Use case for ingesting documents into the system."""
+"""Сценарий использования для индексации документов в системе."""
 from __future__ import annotations
 
 from hashlib import sha256
@@ -24,7 +24,7 @@ def ingest_documents(
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
 ) -> list[Document]:
-    """Ingest a sequence of sources identified by their ids."""
+    """Индексировать набор источников, идентифицированных id."""
 
     ingested_documents: list[Document] = []
     for document_id, source in sources:

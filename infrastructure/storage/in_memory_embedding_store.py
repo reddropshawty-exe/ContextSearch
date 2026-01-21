@@ -1,4 +1,4 @@
-"""In-memory embedding store for demos."""
+"""Хранилище эмбеддингов в памяти для демо."""
 from __future__ import annotations
 
 import heapq
@@ -9,7 +9,7 @@ from domain.interfaces import EmbeddingStore
 
 
 class InMemoryEmbeddingStore(EmbeddingStore):
-    """Stores embeddings in Python lists and performs brute-force search."""
+    """Хранит эмбеддинги в списках Python и ищет перебором."""
 
     def __init__(self, collection_id: str = "in-memory") -> None:
         self.collection_id = collection_id

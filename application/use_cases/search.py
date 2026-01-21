@@ -1,4 +1,4 @@
-"""Use case that performs semantic search over ingested content."""
+"""Сценарий использования для семантического поиска по индексированному содержимому."""
 from __future__ import annotations
 
 from typing import Iterable
@@ -23,7 +23,7 @@ def search(
     reranker: Reranker,
     top_k: int = 5,
 ) -> list[RetrievalResult]:
-    """Search for documents relevant to the provided query text."""
+    """Искать документы, релевантные заданному запросу."""
 
     query = Query(text=query_text)
     expanded_queries: Iterable[Query] = query_rewriter.rewrite(query) or [query]
