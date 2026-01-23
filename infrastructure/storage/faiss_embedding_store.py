@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
+import logging
+
 import faiss
 import numpy as np
 
@@ -22,6 +24,9 @@ class FaissCollection:
     metric: str = "cosine"
     index_path: str = "faiss.index"
     meta_path: str = "collection.json"
+
+
+logger = logging.getLogger(__name__)
 
 
 class FaissEmbeddingStore(EmbeddingStore):
@@ -57,6 +62,7 @@ class FaissEmbeddingStore(EmbeddingStore):
             self._meta_path.write_text(json.dumps(asdict(self._collection), indent=2), encoding="utf-8")
 
         if self._index_path.exists():
+            logger.info("Загрузка индекса FAISS из %s", self._index_path)
             index = faiss.read_index(str(self._index_path))
             if not isinstance(index, faiss.IndexIDMap2):
                 index = faiss.IndexIDMap2(index)
@@ -67,6 +73,7 @@ class FaissEmbeddingStore(EmbeddingStore):
         return index
 
     def _persist(self) -> None:
+        logger.debug("Сохранение индекса FAISS в %s", self._index_path)
         faiss.write_index(self._index, str(self._index_path))
 
     def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
@@ -78,6 +85,7 @@ class FaissEmbeddingStore(EmbeddingStore):
         vectors = np.array(embeddings, dtype="float32")
         if self._normalize_embeddings:
             faiss.normalize_L2(vectors)
+        logger.debug("Добавление %d чанков в FAISS-коллекцию %s", len(chunks), self.collection_id)
 
         ids: list[int] = []
         for chunk in chunks:
@@ -97,6 +105,7 @@ class FaissEmbeddingStore(EmbeddingStore):
         vector = np.array([query_embedding], dtype="float32")
         if self._normalize_embeddings:
             faiss.normalize_L2(vector)
+        logger.debug("Поиск в FAISS-коллекции %s (top_k=%d)", self.collection_id, top_k)
         scores, ids = self._index.search(vector, top_k)
         results: list[RetrievalResult] = []
         for score, chunk_id in zip(scores[0], ids[0]):

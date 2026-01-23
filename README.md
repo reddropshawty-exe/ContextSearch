@@ -45,6 +45,21 @@ docker compose up --build
 - SQLite база: `contextsearch.db`
 - Индексы FAISS: `indexes/<collection_id>/`
 
+## Диагностика падений
+Для локализации проблем можно запустить диагностические тесты:
+
+```bash
+python -m unittest tests.test_diagnostics
+```
+
+Тесты для sentence-transformers и FAISS запускаются только при наличии
+переменных окружения:
+
+```bash
+CONTEXTSEARCH_ENABLE_ST=1 python -m unittest tests.test_diagnostics
+CONTEXTSEARCH_ENABLE_FAISS=1 python -m unittest tests.test_diagnostics
+```
+
 ## Инфраструктурные модели
 В проекте доступно несколько вариантов экстракторов и эмбеддеров, которые можно
 подобрать под разные источники данных:

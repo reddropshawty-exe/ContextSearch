@@ -1,4 +1,4 @@
-"""Use case for ingesting documents from file system paths."""
+"""Сценарий использования для индексации документов по путям файловой системы."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -36,16 +36,6 @@ class Embedder(ABC):
     def dimension(self) -> int:
         """Вернуть размерность эмбеддингов модели."""
 
-    @property
-    @abstractmethod
-    def model_id(self) -> str:
-        """Return the stable identifier for this embedding model."""
-
-    @property
-    @abstractmethod
-    def dimension(self) -> int:
-        """Return the embedding dimension for this model."""
-
     @abstractmethod
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         """Преобразовать список текстов в плотные вектора."""
@@ -57,8 +47,6 @@ class Embedder(ABC):
 
 class EmbeddingStore(ABC):
     """Хранит эмбеддинги и выполняет поиск по сходству."""
-
-    collection_id: str
 
     collection_id: str
 
@@ -97,18 +85,6 @@ class ChunkRepository(ABC):
     @abstractmethod
     def get(self, chunk_id: int) -> Chunk | None:
         """Получить чанк по идентификатору."""
-
-
-class ChunkRepository(ABC):
-    """Persists chunk metadata and content."""
-
-    @abstractmethod
-    def add(self, chunk: Chunk) -> int:
-        """Store a chunk and return its integer id."""
-
-    @abstractmethod
-    def get(self, chunk_id: int) -> Chunk | None:
-        """Retrieve a chunk by id."""
 
 
 class QueryRewriter(ABC):

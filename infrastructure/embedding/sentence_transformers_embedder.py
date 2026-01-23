@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+import logging
+
 from sentence_transformers import SentenceTransformer
 
 from domain.entities import Query
@@ -20,11 +22,15 @@ class SentenceTransformersConfig:
     passage_prefix: str | None = None
 
 
+logger = logging.getLogger(__name__)
+
+
 class SentenceTransformersEmbedder(Embedder):
     """Эмбеддер на базе библиотеки sentence-transformers."""
 
     def __init__(self, config: SentenceTransformersConfig) -> None:
         self._config = config
+        logger.info("Загрузка модели sentence-transformers: %s", config.model_name)
         self._model = SentenceTransformer(config.model_name, device=config.device)
         self._dimension = int(self._model.get_sentence_embedding_dimension())
 
@@ -43,6 +49,7 @@ class SentenceTransformersEmbedder(Embedder):
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         prefixed = [self._apply_prefix(text, self._config.passage_prefix) for text in texts]
+        logger.debug("Кодирование %d документов моделью %s", len(prefixed), self._config.model_name)
         embeddings = self._model.encode(
             prefixed,
             batch_size=self._config.batch_size,
@@ -53,6 +60,7 @@ class SentenceTransformersEmbedder(Embedder):
 
     def embed_query(self, query: Query) -> list[float]:
         text = self._apply_prefix(query.text, self._config.query_prefix)
+        logger.debug("Кодирование запроса моделью %s", self._config.model_name)
         embeddings = self._model.encode(
             [text],
             batch_size=1,
