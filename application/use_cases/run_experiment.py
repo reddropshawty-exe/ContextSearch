@@ -1,4 +1,4 @@
-"""Utility use case that helps run retrieval experiments."""
+"""Вспомогательный сценарий использования для экспериментов поиска."""
 from __future__ import annotations
 
 from statistics import mean
@@ -24,7 +24,7 @@ def run_experiment(
     reranker: Reranker,
     top_k: int = 5,
 ) -> dict[str, float | list[RetrievalResult]]:
-    """Run the search use case for multiple queries and collect metrics."""
+    """Запустить поиск по нескольким запросам и собрать метрики."""
 
     per_query_results: dict[str, list[RetrievalResult]] = {}
     recall_values: list[float] = []
@@ -42,7 +42,8 @@ def run_experiment(
                     result.document = document_repository.get(result.chunk.document_id)
             aggregated_results.extend(results)
 
-        ranked = reranker.rerank(query, aggregated_results)
+        deduped = _deduplicate_results(aggregated_results)
+        ranked = reranker.rerank(query, deduped)
         per_query_results[query_text] = ranked[:top_k]
         recall_values.append(1.0 if ranked else 0.0)
 
@@ -50,3 +51,13 @@ def run_experiment(
         "per_query_results": per_query_results,
         "average_recall": mean(recall_values) if recall_values else 0.0,
     }
+
+
+def _deduplicate_results(results: list[RetrievalResult]) -> list[RetrievalResult]:
+    merged: dict[str, RetrievalResult] = {}
+    for result in results:
+        chunk_id = result.chunk.id
+        existing = merged.get(chunk_id)
+        if existing is None or result.score > existing.score:
+            merged[chunk_id] = result
+    return list(merged.values())
