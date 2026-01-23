@@ -8,6 +8,9 @@ from application.use_cases.ingest_documents import ingest_documents
 from application.use_cases.search import search
 from domain.entities import Document
 from infrastructure.config import build_default_container
+from ui.logging_utils import setup_logging
+
+setup_logging()
 
 app = FastAPI(title="API ContextSearch")
 container = build_default_container()

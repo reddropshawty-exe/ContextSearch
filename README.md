@@ -60,6 +60,14 @@ CONTEXTSEARCH_ENABLE_ST=1 python -m unittest tests.test_diagnostics
 CONTEXTSEARCH_ENABLE_FAISS=1 python -m unittest tests.test_diagnostics
 ```
 
+Логи приложения пишутся в файл `contextsearch.log` в корне проекта. Можно
+переопределить путь и уровень логирования через переменные окружения:
+
+```bash
+CONTEXTSEARCH_LOG_FILE=logs/contextsearch.log CONTEXTSEARCH_LOG_LEVEL=DEBUG \
+  python -m ui.tkinter_app
+```
+
 ## Инфраструктурные модели
 В проекте доступно несколько вариантов экстракторов и эмбеддеров, которые можно
 подобрать под разные источники данных:

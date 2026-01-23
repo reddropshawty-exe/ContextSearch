@@ -6,7 +6,9 @@ import streamlit as st
 from application.use_cases.ingest_documents import ingest_documents
 from application.use_cases.search import search
 from infrastructure.config import build_default_container
+from ui.logging_utils import setup_logging
 
+setup_logging()
 container = build_default_container()
 st.set_page_config(page_title="ContextSearch Демо")
 st.title("ContextSearch Демо")

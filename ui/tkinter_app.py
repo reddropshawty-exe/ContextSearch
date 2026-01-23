@@ -11,10 +11,12 @@ from tkinter.ttk import Combobox
 from application.use_cases.ingest_paths import ingest_paths
 from application.use_cases.search import search
 from infrastructure.config import ContainerConfig, build_default_container
+from ui.logging_utils import setup_logging
 
 
 class ContextSearchApp:
     def __init__(self) -> None:
+        setup_logging()
         self.root = Tk()
         self.root.title("ContextSearch")
         self.paths: list[Path] = []
