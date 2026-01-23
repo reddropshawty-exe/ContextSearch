@@ -1,4 +1,4 @@
-"""SQLite-backed repository for storing document metadata."""
+"""SQLite-репозиторий для хранения метаданных документов."""
 from __future__ import annotations
 
 import json
@@ -11,9 +11,9 @@ from domain.interfaces import DocumentRepository
 
 
 class SqliteDocumentRepository(DocumentRepository):
-    """Stores documents inside a lightweight SQLite database file."""
+    """Хранит документы в лёгкой SQLite-базе."""
 
-    def __init__(self, db_path: str | Path = "documents.db") -> None:
+    def __init__(self, db_path: str | Path = "contextsearch.db") -> None:
         self._db_path = Path(db_path)
         self._ensure_schema()
 
@@ -26,7 +26,7 @@ class SqliteDocumentRepository(DocumentRepository):
                 """
                 CREATE TABLE IF NOT EXISTS documents (
                     id TEXT PRIMARY KEY,
-                    content TEXT NOT NULL,
+                    content TEXT,
                     metadata TEXT NOT NULL
                 )
                 """
