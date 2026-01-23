@@ -5,21 +5,21 @@ import streamlit as st
 
 from application.use_cases.ingest_documents import ingest_documents
 from application.use_cases.search import search
-from infrastructure.config import build_default_container
+from infrastructure.config import ContainerConfig, build_default_container
 from ui.logging_utils import setup_logging
 
 setup_logging()
 
 
 @st.cache_resource
-def get_container():
-    return build_default_container()
+def get_container(safe_mode: bool):
+    return build_default_container(ContainerConfig(safe_mode=safe_mode))
 
-
-container = get_container()
 
 if "documents" not in st.session_state:
     st.session_state["documents"] = []
+safe_mode = st.toggle("Безопасный режим (без FAISS/torch)", value=False)
+container = get_container(safe_mode)
 st.set_page_config(page_title="ContextSearch Демо")
 st.title("ContextSearch Демо")
 

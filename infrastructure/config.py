@@ -1,6 +1,7 @@
 """Настройка зависимостей для приложения ContextSearch."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -75,6 +76,7 @@ class ContainerConfig:
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
     local_rewriter_model: str = "google/flan-t5-small"
+    safe_mode: bool = False
 
 
 _EXTRACTOR_FACTORIES: dict[ExtractorName, Callable[[], TextExtractor]] = {
@@ -95,6 +97,8 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
     """Создать стандартный набор инфраструктурных компонентов."""
 
     cfg = config or ContainerConfig()
+    if _safe_mode_enabled(cfg):
+        cfg = _apply_safe_mode(cfg)
     try:
         extractor = _EXTRACTOR_FACTORIES[cfg.extractor]()
     except KeyError as exc:  # pragma: no cover - защитный код
@@ -174,6 +178,28 @@ def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
             )
         )
     return SimpleQueryRewriter()
+
+
+def _safe_mode_enabled(config: ContainerConfig) -> bool:
+    if config.safe_mode:
+        return True
+    return os.getenv("CONTEXTSEARCH_SAFE_MODE") == "1"
+
+
+def _apply_safe_mode(config: ContainerConfig) -> ContainerConfig:
+    return ContainerConfig(
+        extractor=config.extractor,
+        embedder="hash-minilm",
+        rewriter="simple",
+        embedding_store="in_memory",
+        profile=config.profile,
+        collection_id=config.collection_id,
+        device=config.device,
+        normalize_embeddings=config.normalize_embeddings,
+        embeddinggemma_model=config.embeddinggemma_model,
+        local_rewriter_model=config.local_rewriter_model,
+        safe_mode=True,
+    )
 
 
 __all__ = ["Container", "ContainerConfig", "build_default_container"]

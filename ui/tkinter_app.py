@@ -5,7 +5,22 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from tkinter import END, LEFT, RIGHT, Button, Entry, Frame, Label, Listbox, StringVar, Tk, filedialog, messagebox
+from tkinter import (
+    END,
+    LEFT,
+    RIGHT,
+    BooleanVar,
+    Button,
+    Checkbutton,
+    Entry,
+    Frame,
+    Label,
+    Listbox,
+    StringVar,
+    Tk,
+    filedialog,
+    messagebox,
+)
 from tkinter.ttk import Combobox
 
 from application.use_cases.ingest_paths import ingest_paths
@@ -29,6 +44,7 @@ class ContextSearchApp:
         self.embedder_var = StringVar(value="all-minilm")
         self.rewriter_var = StringVar(value="simple")
         self.collection_var = StringVar(value="experimental")
+        self.safe_mode_var = BooleanVar(value=False)
 
         self._build_layout()
 
@@ -53,6 +69,7 @@ class ContextSearchApp:
         )
         Label(settings, text="Коллекция").pack(side=LEFT)
         Entry(settings, textvariable=self.collection_var, width=18).pack(side=LEFT, padx=5)
+        Checkbutton(settings, text="Безопасный режим", variable=self.safe_mode_var).pack(side=LEFT, padx=5)
 
         controls = Frame(self.root)
         controls.pack(padx=10, pady=5)
@@ -90,8 +107,9 @@ class ContextSearchApp:
             rewriter=self.rewriter_var.get(),
             collection_id=self.collection_var.get() or None if profile == "experimental" else None,
             embedding_store="faiss",
+            safe_mode=self.safe_mode_var.get(),
         )
-        cache_key = (config.profile, config.embedder, config.rewriter, config.collection_id)
+        cache_key = (config.profile, config.embedder, config.rewriter, config.collection_id, config.safe_mode)
         if self._container_cache and self._container_cache[0] == cache_key:
             return self._container_cache[1]
         container = build_default_container(config)

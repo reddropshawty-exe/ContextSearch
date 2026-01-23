@@ -68,6 +68,14 @@ CONTEXTSEARCH_LOG_FILE=logs/contextsearch.log CONTEXTSEARCH_LOG_LEVEL=DEBUG \
   python -m ui.tkinter_app
 ```
 
+Если приложение падает из-за нативных библиотек, можно включить безопасный
+режим (in-memory хранилище и хэш-эмбеддеры без FAISS/torch):
+
+```bash
+CONTEXTSEARCH_SAFE_MODE=1 python -m ui.tkinter_app
+CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
+```
+
 ## Инфраструктурные модели
 В проекте доступно несколько вариантов экстракторов и эмбеддеров, которые можно
 подобрать под разные источники данных:
