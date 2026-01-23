@@ -1,4 +1,4 @@
-"""FastAPI layer that exposes ingest/search operations."""
+"""Слой FastAPI, который предоставляет операции индексации и поиска."""
 from __future__ import annotations
 
 from fastapi import FastAPI, Query as FastAPIQuery
@@ -9,12 +9,12 @@ from application.use_cases.search import search
 from domain.entities import Document
 from infrastructure.config import build_default_container
 
-app = FastAPI(title="ContextSearch API")
+app = FastAPI(title="API ContextSearch")
 container = build_default_container()
 
 
 class DocumentPayload(BaseModel):
-    id: str
+    id: str | None = None
     content: str
 
 
@@ -52,7 +52,7 @@ def documents_endpoint() -> list[DocumentPayload]:
 
 
 @app.get("/search", response_model=SearchResponse)
-def search_endpoint(q: str = FastAPIQuery(..., description="User query")) -> SearchResponse:
+def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пользователя")) -> SearchResponse:
     results = search(
         q,
         embedder=container.embedder,
