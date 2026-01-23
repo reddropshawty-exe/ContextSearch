@@ -9,7 +9,17 @@ from infrastructure.config import build_default_container
 from ui.logging_utils import setup_logging
 
 setup_logging()
-container = build_default_container()
+
+
+@st.cache_resource
+def get_container():
+    return build_default_container()
+
+
+container = get_container()
+
+if "documents" not in st.session_state:
+    st.session_state["documents"] = []
 st.set_page_config(page_title="ContextSearch Демо")
 st.title("ContextSearch Демо")
 
@@ -47,3 +57,20 @@ if st.button("Найти"):
                 "текст": result.chunk.text,
             }
         )
+
+st.header("Индексированные документы")
+if st.button("Обновить список документов"):
+    st.session_state["documents"] = container.document_repository.list()
+
+documents = st.session_state.get("documents", [])
+if documents:
+    for doc in documents:
+        st.write(
+            {
+                "id": doc.id,
+                "название": doc.metadata.get("display_name"),
+                "источник": doc.metadata.get("source_uri"),
+            }
+        )
+else:
+    st.caption("Список пока пуст. Нажмите «Обновить список документов» после индексации.")

@@ -10,6 +10,7 @@ from tkinter.ttk import Combobox
 
 from application.use_cases.ingest_paths import ingest_paths
 from application.use_cases.search import search
+from domain.entities import Document
 from infrastructure.config import ContainerConfig, build_default_container
 from ui.logging_utils import setup_logging
 
@@ -22,6 +23,7 @@ class ContextSearchApp:
         self.paths: list[Path] = []
         self.results: list[dict[str, str]] = []
         self._container_cache: tuple[tuple[str, str, str, str | None], object] | None = None
+        self._documents_cache: list[Document] = []
 
         self.profile_var = StringVar(value="stable")
         self.embedder_var = StringVar(value="all-minilm")
@@ -72,6 +74,13 @@ class ContextSearchApp:
         self.results_list.pack(padx=10, pady=5)
 
         Button(self.root, text="Открыть выбранный", command=self.open_selected).pack(pady=5)
+
+        documents_frame = Frame(self.root)
+        documents_frame.pack(padx=10, pady=5)
+        Button(documents_frame, text="Обновить документы", command=self.refresh_documents).pack(side=LEFT, padx=5)
+        self.documents_list = Listbox(self.root, width=100, height=6)
+        self.documents_list.pack(padx=10, pady=5)
+        Button(self.root, text="Открыть выбранный документ", command=self.open_selected_document).pack(pady=5)
 
     def build_container(self):
         profile = self.profile_var.get()
@@ -124,6 +133,7 @@ class ContextSearchApp:
         if report.errors:
             message += f" Ошибок: {len(report.errors)}"
         messagebox.showinfo("ContextSearch", message)
+        self.refresh_documents()
 
     def search_query(self) -> None:
         query = self.query_entry.get().strip()
@@ -151,6 +161,32 @@ class ContextSearchApp:
             )
             self.results.append({"source_uri": source_uri})
             self.results_list.insert(END, line)
+
+    def refresh_documents(self) -> None:
+        container = self.build_container()
+        documents = container.document_repository.list()
+        self._documents_cache = documents
+        self.documents_list.delete(0, END)
+        for doc in documents:
+            display_name = doc.metadata.get("display_name") or doc.id
+            source_uri = doc.metadata.get("source_uri", "")
+            self.documents_list.insert(END, f"{display_name} | {source_uri}")
+
+    def open_selected_document(self) -> None:
+        selection = self.documents_list.curselection()
+        if not selection:
+            messagebox.showinfo("ContextSearch", "Выберите документ для открытия.")
+            return
+        index = selection[0]
+        documents = getattr(self, "_documents_cache", [])
+        if index >= len(documents):
+            messagebox.showwarning("ContextSearch", "Документ не найден.")
+            return
+        source_uri = documents[index].metadata.get("source_uri", "")
+        if not source_uri or not Path(source_uri).exists():
+            messagebox.showwarning("ContextSearch", "Файл не найден.")
+            return
+        self._open_path(source_uri)
 
     def open_selected(self) -> None:
         selection = self.results_list.curselection()
