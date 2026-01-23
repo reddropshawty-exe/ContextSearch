@@ -44,7 +44,9 @@ class ContextSearchApp:
         self.embedder_var = StringVar(value="all-minilm")
         self.rewriter_var = StringVar(value="simple")
         self.collection_var = StringVar(value="experimental")
+        self.store_var = StringVar(value="in_memory")
         self.safe_mode_var = BooleanVar(value=False)
+        self.status_var = StringVar(value="Конфигурация: не выбрана")
 
         self._build_layout()
 
@@ -69,6 +71,10 @@ class ContextSearchApp:
         )
         Label(settings, text="Коллекция").pack(side=LEFT)
         Entry(settings, textvariable=self.collection_var, width=18).pack(side=LEFT, padx=5)
+        Label(settings, text="Хранилище").pack(side=LEFT)
+        Combobox(settings, textvariable=self.store_var, values=["in_memory", "faiss"], width=12).pack(
+            side=LEFT, padx=5
+        )
         Checkbutton(settings, text="Безопасный режим", variable=self.safe_mode_var).pack(side=LEFT, padx=5)
 
         controls = Frame(self.root)
@@ -91,6 +97,7 @@ class ContextSearchApp:
         self.results_list.pack(padx=10, pady=5)
 
         Button(self.root, text="Открыть выбранный", command=self.open_selected).pack(pady=5)
+        Label(self.root, textvariable=self.status_var).pack(pady=5)
 
         documents_frame = Frame(self.root)
         documents_frame.pack(padx=10, pady=5)
@@ -106,14 +113,25 @@ class ContextSearchApp:
             embedder=self.embedder_var.get(),
             rewriter=self.rewriter_var.get(),
             collection_id=self.collection_var.get() or None if profile == "experimental" else None,
-            embedding_store="faiss",
+            embedding_store=self.store_var.get(),
             safe_mode=self.safe_mode_var.get(),
         )
-        cache_key = (config.profile, config.embedder, config.rewriter, config.collection_id, config.safe_mode)
+        cache_key = (
+            config.profile,
+            config.embedder,
+            config.rewriter,
+            config.collection_id,
+            config.safe_mode,
+            config.embedding_store,
+        )
         if self._container_cache and self._container_cache[0] == cache_key:
             return self._container_cache[1]
         container = build_default_container(config)
         self._container_cache = (cache_key, container)
+        self.status_var.set(
+            f"Конфигурация: эмбеддер={container.embedder.model_id}, "
+            f"хранилище={container.embedding_store.collection_id}"
+        )
         return container
 
     def choose_folder(self) -> None:

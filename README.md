@@ -76,6 +76,10 @@ CONTEXTSEARCH_SAFE_MODE=1 python -m ui.tkinter_app
 CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
 ```
 
+Если нужно оставить реальные эмбеддеры, но отключить FAISS, выберите
+`in_memory` в интерфейсе (Streamlit/Tkinter) или выставьте
+`embedding_store="in_memory"` в конфигурации.
+
 ## Инфраструктурные модели
 В проекте доступно несколько вариантов экстракторов и эмбеддеров, которые можно
 подобрать под разные источники данных:

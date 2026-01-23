@@ -12,16 +12,21 @@ setup_logging()
 
 
 @st.cache_resource
-def get_container(safe_mode: bool):
-    return build_default_container(ContainerConfig(safe_mode=safe_mode))
+def get_container(safe_mode: bool, embedding_store: str):
+    return build_default_container(ContainerConfig(safe_mode=safe_mode, embedding_store=embedding_store))
 
 
 if "documents" not in st.session_state:
     st.session_state["documents"] = []
 safe_mode = st.toggle("Безопасный режим (без FAISS/torch)", value=False)
-container = get_container(safe_mode)
+embedding_store = st.selectbox("Хранилище эмбеддингов", ["in_memory", "faiss"], index=0)
+container = get_container(safe_mode, embedding_store)
 st.set_page_config(page_title="ContextSearch Демо")
 st.title("ContextSearch Демо")
+st.caption(
+    "Активная конфигурация: "
+    f"эмбеддер={container.embedder.model_id}, хранилище={container.embedding_store.collection_id}"
+)
 
 st.header("Индексация")
 ingest_form = st.form("ingest")
