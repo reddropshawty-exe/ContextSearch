@@ -35,6 +35,19 @@ class SqliteChunkRepository(ChunkRepository):
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks (document_id)")
+            self._ensure_columns(conn)
+
+    @staticmethod
+    def _ensure_columns(conn: sqlite3.Connection) -> None:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+        required = {
+            "start": "INTEGER",
+            "end": "INTEGER",
+            "text_hash": "TEXT",
+        }
+        for name, column_type in required.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE chunks ADD COLUMN {name} {column_type}")
 
     def add(self, chunk: Chunk) -> str:
         with self._connect() as conn:

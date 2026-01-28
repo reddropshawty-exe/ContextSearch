@@ -51,6 +51,21 @@ class SqliteDocumentRepository(DocumentRepository):
                 )
                 """
             )
+            self._ensure_columns(conn)
+
+    @staticmethod
+    def _ensure_columns(conn: sqlite3.Connection) -> None:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(documents)").fetchall()}
+        required = {
+            "path": "TEXT",
+            "title": "TEXT",
+            "mime_type": "TEXT",
+            "content_hash": "TEXT",
+            "modified_at": "TEXT",
+        }
+        for name, column_type in required.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE documents ADD COLUMN {name} {column_type}")
 
     def add(self, document: Document) -> None:
         if not document.id:
