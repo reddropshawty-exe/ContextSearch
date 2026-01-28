@@ -1,10 +1,15 @@
-"""Use case for ingesting documents into the system."""
+"""Сценарий использования для индексации документов в системе."""
 from __future__ import annotations
 
+from hashlib import sha256
+from datetime import datetime
+from time import time
 from typing import Iterable
+from uuid import uuid4
 
-from domain.entities import Document
+from domain.entities import Chunk, Document, EmbeddingSpec
 from domain.interfaces import (
+    ChunkRepository,
     ChunkSplitter,
     DocumentRepository,
     Embedder,
@@ -14,27 +19,76 @@ from domain.interfaces import (
 
 
 def ingest_documents(
-    sources: Iterable[tuple[str, bytes | str]],
+    sources: Iterable[tuple[str | None, bytes | str]],
     *,
     extractor: TextExtractor,
     splitter: ChunkSplitter,
     embedder: Embedder,
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
+    chunk_repository: ChunkRepository,
+    embedding_specs: list[EmbeddingSpec],
 ) -> list[Document]:
-    """Ingest a sequence of sources identified by their ids."""
+    """Индексировать набор источников, идентифицированных id."""
 
     ingested_documents: list[Document] = []
     for document_id, source in sources:
+        indexed_at = int(time())
         text = extractor.extract(source)
-        document = Document(id=document_id, content=text)
+        content_hash = sha256(text.encode("utf-8")).hexdigest()
+        document = Document(
+            id=document_id or "",
+            content=text,
+            content_hash=content_hash,
+            modified_at=datetime.fromtimestamp(indexed_at),
+            metadata={
+                "source_type": "raw",
+                "source_uri": document_id,
+                "display_name": document_id,
+                "extension": "",
+                "size_bytes": len(text.encode("utf-8")),
+                "mtime": indexed_at,
+                "content_hash": content_hash,
+                "indexed_at": indexed_at,
+            },
+        )
         document_repository.add(document)
         ingested_documents.append(document)
 
         chunks = splitter.split(document)
         if not chunks:
             continue
-        embeddings = embedder.embed_texts([chunk.text for chunk in chunks])
-        embedding_store.add(chunks, embeddings)
+        persisted_chunks: list[Chunk] = []
+        for chunk in chunks:
+            chunk.metadata = dict(chunk.metadata)
+            chunk.text_hash = sha256(chunk.text.encode("utf-8")).hexdigest()
+            if not chunk.id:
+                chunk.id = str(uuid4())
+            chunk_repository.add(chunk)
+            persisted_chunks.append(chunk)
+        _index_embeddings(
+            embedder=embedder,
+            embedding_store=embedding_store,
+            embedding_specs=embedding_specs,
+            document=document,
+            chunks=persisted_chunks,
+        )
 
     return ingested_documents
+
+
+def _index_embeddings(
+    *,
+    embedder: Embedder,
+    embedding_store: EmbeddingStore,
+    embedding_specs: list[EmbeddingSpec],
+    document: Document,
+    chunks: list[Chunk],
+) -> None:
+    for spec in embedding_specs:
+        if spec.level == "document":
+            doc_embedding = embedder.embed_texts([document.content])[0]
+            embedding_store.add(spec, "document", [document.id], [doc_embedding])
+        else:
+            embeddings = embedder.embed_texts([chunk.text for chunk in chunks])
+            embedding_store.add(spec, "chunk", [chunk.id for chunk in chunks], embeddings)
