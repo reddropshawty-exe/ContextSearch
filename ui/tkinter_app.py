@@ -72,7 +72,7 @@ class ContextSearchApp:
         Label(settings, text="Коллекция").pack(side=LEFT)
         Entry(settings, textvariable=self.collection_var, width=18).pack(side=LEFT, padx=5)
         Label(settings, text="Хранилище").pack(side=LEFT)
-        Combobox(settings, textvariable=self.store_var, values=["in_memory", "faiss"], width=12).pack(
+        Combobox(settings, textvariable=self.store_var, values=["in_memory", "hnsw"], width=12).pack(
             side=LEFT, padx=5
         )
         Checkbutton(settings, text="Безопасный режим", variable=self.safe_mode_var).pack(side=LEFT, padx=5)
@@ -130,7 +130,7 @@ class ContextSearchApp:
         self._container_cache = (cache_key, container)
         self.status_var.set(
             f"Конфигурация: эмбеддер={container.embedder.model_id}, "
-            f"хранилище={container.embedding_store.collection_id}"
+            f"хранилище={self.store_var.get()}, specs={len(container.embedding_specs)}"
         )
         return container
 
@@ -162,6 +162,8 @@ class ContextSearchApp:
             embedder=container.embedder,
             embedding_store=container.embedding_store,
             document_repository=container.document_repository,
+            chunk_repository=container.chunk_repository,
+            embedding_specs=container.embedding_specs,
         )
         self.paths.clear()
         self.paths_list.delete(0, END)
@@ -182,17 +184,22 @@ class ContextSearchApp:
             embedder=container.embedder,
             embedding_store=container.embedding_store,
             document_repository=container.document_repository,
+            chunk_repository=container.chunk_repository,
+            embedding_record_repository=container.embedding_record_repository,
+            embedding_specs=container.embedding_specs,
             query_rewriter=container.query_rewriter,
             reranker=container.reranker,
         )
         self.results_list.delete(0, END)
         self.results = []
         for result in results:
+            if result.chunk is None:
+                continue
             source_uri = result.chunk.metadata.get("source_uri", "")
             display_name = result.document.metadata.get("display_name") if result.document else None
             snippet = result.chunk.text.replace("\n", " ")[:120]
             line = (
-                f"{display_name or result.chunk.document_id} | "
+                f"{display_name or result.document_id} | "
                 f"оценка={result.score:.3f} | {snippet} | {source_uri}"
             )
             self.results.append({"source_uri": source_uri})
@@ -204,8 +211,8 @@ class ContextSearchApp:
         self._documents_cache = documents
         self.documents_list.delete(0, END)
         for doc in documents:
-            display_name = doc.metadata.get("display_name") or doc.id
-            source_uri = doc.metadata.get("source_uri", "")
+            display_name = doc.title or doc.metadata.get("display_name") or doc.id
+            source_uri = doc.path or doc.metadata.get("source_uri", "")
             self.documents_list.insert(END, f"{display_name} | {source_uri}")
 
     def open_selected_document(self) -> None:
@@ -218,7 +225,7 @@ class ContextSearchApp:
         if index >= len(documents):
             messagebox.showwarning("ContextSearch", "Документ не найден.")
             return
-        source_uri = documents[index].metadata.get("source_uri", "")
+        source_uri = documents[index].path or documents[index].metadata.get("source_uri", "")
         if not source_uri or not Path(source_uri).exists():
             messagebox.showwarning("ContextSearch", "Файл не найден.")
             return

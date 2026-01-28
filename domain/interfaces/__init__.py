@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Iterable, Sequence
 
-from domain.entities import Chunk, Document, Query, RetrievalResult
+from domain.entities import Chunk, Document, EmbeddingSpec, Query, RetrievalResult
 
 
 class TextExtractor(ABC):
@@ -48,15 +48,24 @@ class Embedder(ABC):
 class EmbeddingStore(ABC):
     """Хранит эмбеддинги и выполняет поиск по сходству."""
 
-    collection_id: str
+    @abstractmethod
+    def add(
+        self,
+        spec: EmbeddingSpec,
+        object_type: str,
+        object_ids: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+    ) -> None:
+        """Сохранить эмбеддинги для объектов указанного типа."""
 
     @abstractmethod
-    def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
-        """Сохранить эмбеддинги для указанных чанков."""
-
-    @abstractmethod
-    def search(self, query_embedding: Sequence[float], top_k: int = 5) -> list[RetrievalResult]:
-        """Вернуть лучшие совпадения для эмбеддинга запроса."""
+    def search(
+        self,
+        spec: EmbeddingSpec,
+        query_embedding: Sequence[float],
+        top_k: int = 5,
+    ) -> list[tuple[int, float]]:
+        """Вернуть ann_id и score для эмбеддинга запроса."""
 
 
 class DocumentRepository(ABC):
@@ -79,12 +88,46 @@ class ChunkRepository(ABC):
     """Хранит метаданные и содержимое чанков."""
 
     @abstractmethod
-    def add(self, chunk: Chunk) -> int:
-        """Сохранить чанк и вернуть его числовой идентификатор."""
+    def add(self, chunk: Chunk) -> str:
+        """Сохранить чанк и вернуть его идентификатор."""
 
     @abstractmethod
-    def get(self, chunk_id: int) -> Chunk | None:
+    def get(self, chunk_id: str) -> Chunk | None:
         """Получить чанк по идентификатору."""
+
+
+class EmbeddingSpecRepository(ABC):
+    """Хранит спецификации эмбеддингов."""
+
+    @abstractmethod
+    def upsert(self, spec: EmbeddingSpec) -> None:
+        """Создать или обновить спецификацию."""
+
+    @abstractmethod
+    def list(self) -> list[EmbeddingSpec]:
+        """Вернуть список спецификаций."""
+
+    @abstractmethod
+    def get(self, spec_id: str) -> EmbeddingSpec | None:
+        """Получить спецификацию по id."""
+
+
+class EmbeddingRecordRepository(ABC):
+    """Хранит маппинг ann_id к объектам."""
+
+    @abstractmethod
+    def add_records(
+        self,
+        spec_id: str,
+        object_type: str,
+        object_ids: Sequence[str],
+        ann_ids: Sequence[int],
+    ) -> None:
+        """Добавить записи маппинга."""
+
+    @abstractmethod
+    def find_object_ids(self, spec_id: str, ann_ids: Sequence[int]) -> list[str]:
+        """Получить object_id по ann_id."""
 
 
 class QueryRewriter(ABC):
@@ -110,6 +153,8 @@ __all__ = [
     "EmbeddingStore",
     "DocumentRepository",
     "ChunkRepository",
+    "EmbeddingSpecRepository",
+    "EmbeddingRecordRepository",
     "QueryRewriter",
     "Reranker",
 ]

@@ -24,32 +24,54 @@ class SqliteChunkRepository(ChunkRepository):
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chunks (
-                    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chunk_id TEXT PRIMARY KEY,
                     document_id TEXT NOT NULL,
                     text TEXT NOT NULL,
+                    start INTEGER,
+                    end INTEGER,
+                    text_hash TEXT,
                     metadata TEXT NOT NULL
                 )
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks (document_id)")
 
-    def add(self, chunk: Chunk) -> int:
+    def add(self, chunk: Chunk) -> str:
         with self._connect() as conn:
-            cursor = conn.execute(
-                "INSERT INTO chunks (document_id, text, metadata) VALUES (?, ?, ?)",
-                (chunk.document_id, chunk.text, json.dumps(chunk.metadata)),
+            conn.execute(
+                """
+                REPLACE INTO chunks (chunk_id, document_id, text, start, end, text_hash, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chunk.id,
+                    chunk.document_id,
+                    chunk.text,
+                    chunk.start,
+                    chunk.end,
+                    chunk.text_hash,
+                    json.dumps(chunk.metadata),
+                ),
             )
-            return int(cursor.lastrowid)
+            return chunk.id
 
-    def get(self, chunk_id: int) -> Chunk | None:
+    def get(self, chunk_id: str) -> Chunk | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT chunk_id, document_id, text, metadata FROM chunks WHERE chunk_id = ?",
+                "SELECT chunk_id, document_id, text, start, end, text_hash, metadata FROM chunks WHERE chunk_id = ?",
                 (chunk_id,),
             ).fetchone()
         if row is None:
             return None
-        return Chunk(id=str(row[0]), document_id=row[1], text=row[2], metadata=json.loads(row[3]))
+        return Chunk(
+            id=row[0],
+            document_id=row[1],
+            text=row[2],
+            start=row[3],
+            end=row[4],
+            text_hash=row[5],
+            metadata=json.loads(row[6]),
+        )
 
 
 __all__ = ["SqliteChunkRepository"]

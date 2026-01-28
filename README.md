@@ -43,7 +43,7 @@ docker compose up --build
 После индексации на диске появятся:
 
 - SQLite база: `contextsearch.db`
-- Индексы FAISS: `indexes/<collection_id>/`
+- Индексы ANN (HNSW): `indexes/<spec_id>.bin`
 
 ## Диагностика падений
 Для локализации проблем можно запустить диагностические тесты:
@@ -52,12 +52,12 @@ docker compose up --build
 python -m unittest tests.test_diagnostics
 ```
 
-Тесты для sentence-transformers и FAISS запускаются только при наличии
+Тесты для sentence-transformers и HNSW запускаются только при наличии
 переменных окружения:
 
 ```bash
 CONTEXTSEARCH_ENABLE_ST=1 python -m unittest tests.test_diagnostics
-CONTEXTSEARCH_ENABLE_FAISS=1 python -m unittest tests.test_diagnostics
+CONTEXTSEARCH_ENABLE_HNSW=1 python -m unittest tests.test_diagnostics
 ```
 
 Логи приложения пишутся в файл `contextsearch.log` в корне проекта. Можно
@@ -69,14 +69,14 @@ CONTEXTSEARCH_LOG_FILE=logs/contextsearch.log CONTEXTSEARCH_LOG_LEVEL=DEBUG \
 ```
 
 Если приложение падает из-за нативных библиотек, можно включить безопасный
-режим (in-memory хранилище и хэш-эмбеддеры без FAISS/torch):
+режим (in-memory хранилище и хэш-эмбеддеры без HNSW/torch):
 
 ```bash
 CONTEXTSEARCH_SAFE_MODE=1 python -m ui.tkinter_app
 CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
 ```
 
-Если нужно оставить реальные эмбеддеры, но отключить FAISS, выберите
+Если нужно оставить реальные эмбеддеры, но отключить HNSW, выберите
 `in_memory` в интерфейсе (Streamlit/Tkinter) или выставьте
 `embedding_store="in_memory"` в конфигурации.
 
@@ -120,7 +120,7 @@ CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
 - **Более глубокие экстракторы.** Расширить `PdfExtractor` поддержкой PyPDF2 или
   pdfminer, добавить обработку DOCX/HTML с извлечением метаданных и языков.
 - **Настоящие эмбеддинги и storage.** Интегрировать sentence-transformers,
-  fastText или open-source LLM, заменить in-memory store на FAISS/Qdrant и
+  fastText или open-source LLM, заменить in-memory store на HNSW/Qdrant и
   прописать конфигурацию подключения.
 - **Сложные пайплайны запросов.** Добавить LLM‑переписывание (локальные модели),
   BM25‑retrieval и cross-encoder reranking, а также гибкие параметры top‑K и агрегации.

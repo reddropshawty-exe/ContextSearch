@@ -5,10 +5,14 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Literal
 
+from domain.entities import EmbeddingSpec
 from domain.interfaces import (
+    ChunkRepository,
     ChunkSplitter,
     DocumentRepository,
     Embedder,
+    EmbeddingRecordRepository,
+    EmbeddingSpecRepository,
     EmbeddingStore,
     QueryRewriter,
     Reranker,
@@ -24,9 +28,12 @@ from infrastructure.embedding.sentence_transformers_embedder import (
 from infrastructure.query.llm_rewriter import LLMQueryRewriter, LLMRewriterConfig
 from infrastructure.query.simple_reranker import SimpleReranker
 from infrastructure.query.simple_rewriter import SimpleQueryRewriter
+from infrastructure.repositories.sqlite_chunk_repository import SqliteChunkRepository
 from infrastructure.repositories.sqlite_document_repository import SqliteDocumentRepository
+from infrastructure.repositories.sqlite_embedding_record_repository import SqliteEmbeddingRecordRepository
+from infrastructure.repositories.sqlite_embedding_spec_repository import SqliteEmbeddingSpecRepository
 from infrastructure.splitting.fixed_window_splitter import FixedWindowSplitter
-from infrastructure.storage.faiss_embedding_store import FaissCollection, FaissEmbeddingStore
+from infrastructure.storage.hnsw_embedding_store import HnswEmbeddingStore
 from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
 from infrastructure.text_extraction.docx_extractor import DocxExtractor
 from infrastructure.text_extraction.html_extractor import HtmlExtractor
@@ -45,7 +52,7 @@ EmbedderName = Literal[
     "embedding-gemma",
 ]
 RewriterName = Literal["simple", "llm"]
-EmbeddingStoreName = Literal["in_memory", "faiss"]
+EmbeddingStoreName = Literal["in_memory", "hnsw"]
 ProfileName = Literal["stable", "experimental"]
 
 
@@ -58,8 +65,12 @@ class Container:
     embedder: Embedder
     embedding_store: EmbeddingStore
     document_repository: DocumentRepository
+    chunk_repository: ChunkRepository
+    embedding_spec_repository: EmbeddingSpecRepository
+    embedding_record_repository: EmbeddingRecordRepository
     query_rewriter: QueryRewriter
     reranker: Reranker
+    embedding_specs: list[EmbeddingSpec]
 
 
 @dataclass(slots=True)
@@ -69,7 +80,7 @@ class ContainerConfig:
     extractor: ExtractorName = "pdf"
     embedder: EmbedderName = "all-minilm"
     rewriter: RewriterName = "simple"
-    embedding_store: EmbeddingStoreName = "faiss"
+    embedding_store: EmbeddingStoreName = "hnsw"
     profile: ProfileName = "stable"
     collection_id: str | None = None
     device: str = "cpu"
@@ -77,6 +88,7 @@ class ContainerConfig:
     embeddinggemma_model: str = "google/embeddinggemma-300m"
     local_rewriter_model: str = "google/flan-t5-small"
     safe_mode: bool = False
+    embedder_models: tuple[EmbedderName, ...] = ("all-minilm",)
 
 
 _EXTRACTOR_FACTORIES: dict[ExtractorName, Callable[[], TextExtractor]] = {
@@ -105,8 +117,14 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
         raise ValueError(f"Неизвестный экстрактор '{cfg.extractor}'") from exc
     splitter = FixedWindowSplitter()
     embedder = _build_embedder(cfg)
-    embedding_store = _build_embedding_store(cfg, embedder)
     document_repository = SqliteDocumentRepository(db_path="contextsearch.db")
+    chunk_repository = SqliteChunkRepository(db_path="contextsearch.db")
+    embedding_spec_repository = SqliteEmbeddingSpecRepository(db_path="contextsearch.db")
+    embedding_record_repository = SqliteEmbeddingRecordRepository(db_path="contextsearch.db")
+    embedding_specs = _build_embedding_specs(cfg, embedder)
+    for spec in embedding_specs:
+        embedding_spec_repository.upsert(spec)
+    embedding_store = _build_embedding_store(cfg, embedding_record_repository)
     query_rewriter = _build_rewriter(cfg)
     reranker = SimpleReranker()
 
@@ -116,8 +134,12 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
         embedder=embedder,
         embedding_store=embedding_store,
         document_repository=document_repository,
+        chunk_repository=chunk_repository,
+        embedding_spec_repository=embedding_spec_repository,
+        embedding_record_repository=embedding_record_repository,
         query_rewriter=query_rewriter,
         reranker=reranker,
+        embedding_specs=embedding_specs,
     )
 
 
@@ -152,22 +174,13 @@ def _sentence_model_config(config: ContainerConfig) -> SentenceTransformersConfi
     )
 
 
-def _build_embedding_store(config: ContainerConfig, embedder: Embedder) -> EmbeddingStore:
+def _build_embedding_store(
+    config: ContainerConfig,
+    record_repository: EmbeddingRecordRepository,
+) -> EmbeddingStore:
     if config.embedding_store == "in_memory":
-        return InMemoryEmbeddingStore(collection_id="in-memory")
-
-    collection_id = config.collection_id or ("stable" if config.profile == "stable" else "experimental")
-    collection = FaissCollection(
-        collection_id=collection_id,
-        model_id=embedder.model_id,
-        dimension=embedder.dimension,
-    )
-    return FaissEmbeddingStore(
-        collection=collection,
-        index_root="indexes",
-        db_path="contextsearch.db",
-        normalize_embeddings=config.normalize_embeddings,
-    )
+        return InMemoryEmbeddingStore(record_repository=record_repository)
+    return HnswEmbeddingStore(index_root="indexes", record_repository=record_repository)
 
 
 def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
@@ -199,7 +212,47 @@ def _apply_safe_mode(config: ContainerConfig) -> ContainerConfig:
         embeddinggemma_model=config.embeddinggemma_model,
         local_rewriter_model=config.local_rewriter_model,
         safe_mode=True,
+        embedder_models=("hash-minilm",),
     )
+
+
+def _build_embedding_specs(config: ContainerConfig, embedder: Embedder) -> list[EmbeddingSpec]:
+    specs: list[EmbeddingSpec] = []
+    metric = "cosine"
+    for model_name in config.embedder_models:
+        if model_name == config.embedder:
+            dimension = embedder.dimension
+        elif model_name in _EMBEDDER_FACTORIES:
+            temp_embedder = _EMBEDDER_FACTORIES[model_name]()
+            dimension = temp_embedder.dimension
+        else:
+            temp_config = _sentence_model_config(ContainerConfig(embedder=model_name))
+            temp_embedder = SentenceTransformersEmbedder(temp_config)
+            dimension = temp_embedder.dimension
+        base_id = f"{model_name}-{dimension}"
+        specs.append(
+            EmbeddingSpec(
+                id=f"{base_id}-document",
+                model_name=model_name,
+                dimension=dimension,
+                metric=metric,
+                normalize=True,
+                level="document",
+                params={"M": 16, "ef_construction": 200, "ef_search": 50},
+            )
+        )
+        specs.append(
+            EmbeddingSpec(
+                id=f"{base_id}-chunk",
+                model_name=model_name,
+                dimension=dimension,
+                metric=metric,
+                normalize=True,
+                level="chunk",
+                params={"M": 16, "ef_construction": 200, "ef_search": 50},
+            )
+        )
+    return specs
 
 
 __all__ = ["Container", "ContainerConfig", "build_default_container"]

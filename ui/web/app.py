@@ -18,14 +18,16 @@ def get_container(safe_mode: bool, embedding_store: str):
 
 if "documents" not in st.session_state:
     st.session_state["documents"] = []
-safe_mode = st.toggle("Безопасный режим (без FAISS/torch)", value=False)
-embedding_store = st.selectbox("Хранилище эмбеддингов", ["in_memory", "faiss"], index=0)
+safe_mode = st.toggle("Безопасный режим (без HNSW/torch)", value=False)
+embedding_store = st.selectbox("Хранилище эмбеддингов", ["in_memory", "hnsw"], index=0)
 container = get_container(safe_mode, embedding_store)
+store_label = "in_memory" if embedding_store == "in_memory" else "hnsw"
 st.set_page_config(page_title="ContextSearch Демо")
 st.title("ContextSearch Демо")
 st.caption(
     "Активная конфигурация: "
-    f"эмбеддер={container.embedder.model_id}, хранилище={container.embedding_store.collection_id}"
+    f"эмбеддер={container.embedder.model_id}, хранилище={store_label}, "
+    f"specs={len(container.embedding_specs)}"
 )
 
 st.header("Индексация")
@@ -40,6 +42,8 @@ if ingest_submit:
         embedder=container.embedder,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
+        chunk_repository=container.chunk_repository,
+        embedding_specs=container.embedding_specs,
     )
     st.success("Документ проиндексирован")
 
@@ -51,15 +55,18 @@ if st.button("Найти"):
         embedder=container.embedder,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
+        chunk_repository=container.chunk_repository,
+        embedding_record_repository=container.embedding_record_repository,
+        embedding_specs=container.embedding_specs,
         query_rewriter=container.query_rewriter,
         reranker=container.reranker,
     )
     for result in results:
         st.write(
             {
-                "документ": result.chunk.document_id,
+                "документ": result.document_id,
                 "оценка": round(result.score, 3),
-                "текст": result.chunk.text,
+                "текст": result.chunk.text if result.chunk else None,
             }
         )
 
@@ -73,8 +80,8 @@ if documents:
         st.write(
             {
                 "id": doc.id,
-                "название": doc.metadata.get("display_name"),
-                "источник": doc.metadata.get("source_uri"),
+                "название": doc.title or doc.metadata.get("display_name"),
+                "источник": doc.path or doc.metadata.get("source_uri"),
             }
         )
 else:

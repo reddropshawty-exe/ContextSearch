@@ -4,11 +4,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
+from datetime import datetime
 from time import time
 from typing import Iterable
+from uuid import uuid4
 
-from domain.entities import Document
-from domain.interfaces import ChunkSplitter, DocumentRepository, Embedder, EmbeddingStore, TextExtractor
+from domain.entities import Chunk, Document, EmbeddingSpec
+from domain.interfaces import (
+    ChunkRepository,
+    ChunkSplitter,
+    DocumentRepository,
+    Embedder,
+    EmbeddingStore,
+    TextExtractor,
+)
 from infrastructure.text_extraction.docx_extractor import DocxExtractor
 from infrastructure.text_extraction.html_extractor import HtmlExtractor
 from infrastructure.text_extraction.pdf_extractor import PdfExtractor
@@ -45,6 +54,8 @@ def ingest_paths(
     embedder: Embedder,
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
+    chunk_repository: ChunkRepository,
+    embedding_specs: list[EmbeddingSpec],
 ) -> IngestReport:
     """Индексировать документы по списку файлов или директорий."""
 
@@ -66,19 +77,38 @@ def ingest_paths(
             report.errors.append(IngestError(path=str(path), reason=str(exc)))
             continue
 
-        document = Document(id=_document_id(path, metadata), content=text, metadata=metadata)
+        document = Document(
+            id="",
+            path=str(path.resolve()),
+            title=path.name,
+            mime_type=metadata.get("mime_type"),
+            content=text,
+            content_hash=metadata.get("content_hash"),
+            modified_at=datetime.fromtimestamp(metadata.get("mtime", 0)),
+            metadata=metadata,
+        )
         document_repository.add(document)
         report.indexed += 1
 
         chunks = splitter.split(document)
+        persisted_chunks: list[Chunk] = []
         for chunk in chunks:
             chunk.metadata = dict(chunk.metadata)
             chunk.metadata.setdefault("source_uri", metadata["source_uri"])
-            chunk.metadata.setdefault("collection_id", embedding_store.collection_id)
+            chunk.text_hash = sha256(chunk.text.encode("utf-8")).hexdigest()
+            if not chunk.id:
+                chunk.id = str(uuid4())
+            chunk_repository.add(chunk)
+            persisted_chunks.append(chunk)
         if not chunks:
             continue
-        embeddings = embedder.embed_texts([chunk.text for chunk in chunks])
-        embedding_store.add(chunks, embeddings)
+        _index_embeddings(
+            embedder=embedder,
+            embedding_store=embedding_store,
+            embedding_specs=embedding_specs,
+            document=document,
+            chunks=persisted_chunks,
+        )
 
     return report
 
@@ -103,6 +133,7 @@ def _build_metadata(path: Path, *, indexed_at: int) -> dict[str, object]:
         "source_uri": str(path.resolve()),
         "display_name": path.name,
         "extension": path.suffix.lower().lstrip("."),
+        "mime_type": _guess_mime(path),
         "size_bytes": stat.st_size,
         "mtime": int(stat.st_mtime),
         "content_hash": "",
@@ -110,9 +141,32 @@ def _build_metadata(path: Path, *, indexed_at: int) -> dict[str, object]:
     }
 
 
-def _document_id(path: Path, metadata: dict[str, object]) -> str:
-    base = f"{path.resolve()}|{metadata.get('mtime')}|{metadata.get('size_bytes')}"
-    return sha256(base.encode("utf-8")).hexdigest()
+def _guess_mime(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext == ".pdf":
+        return "application/pdf"
+    if ext == ".docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if ext in {".html", ".htm"}:
+        return "text/html"
+    return "text/plain"
+
+
+def _index_embeddings(
+    *,
+    embedder: Embedder,
+    embedding_store: EmbeddingStore,
+    embedding_specs: list[EmbeddingSpec],
+    document: Document,
+    chunks: list[Chunk],
+) -> None:
+    for spec in embedding_specs:
+        if spec.level == "document":
+            doc_embedding = embedder.embed_texts([document.content])[0]
+            embedding_store.add(spec, "document", [document.id], [doc_embedding])
+        else:
+            embeddings = embedder.embed_texts([chunk.text for chunk in chunks])
+            embedding_store.add(spec, "chunk", [chunk.id for chunk in chunks], embeddings)
 
 
 __all__ = ["ingest_paths", "IngestReport", "IngestError"]

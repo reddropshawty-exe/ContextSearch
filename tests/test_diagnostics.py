@@ -8,12 +8,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from domain.entities import Chunk, Document, Query
+from domain.entities import Chunk, Document, EmbeddingSpec, Query
 from infrastructure.embedding.character_ngram_embedder import CharacterNgramEmbedder
 from infrastructure.embedding.mean_word_hash_embedder import MeanWordHashEmbedder
 from infrastructure.embedding.minilm_embedder import MiniLMEmbedder
 from infrastructure.repositories.sqlite_chunk_repository import SqliteChunkRepository
-from infrastructure.storage.faiss_embedding_store import FaissCollection, FaissEmbeddingStore
+from infrastructure.repositories.sqlite_embedding_record_repository import SqliteEmbeddingRecordRepository
+from infrastructure.storage.hnsw_embedding_store import HnswEmbeddingStore
 from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
 
 
@@ -47,40 +48,50 @@ class TestSentenceTransformers(DiagnosticLoggingMixin, unittest.TestCase):
             self.skipTest("Переменная CONTEXTSEARCH_ENABLE_ST не установлена.")
 
 
-class TestFaissStore(DiagnosticLoggingMixin, unittest.TestCase):
-    def test_faiss_search_optional(self) -> None:
-        if os.getenv("CONTEXTSEARCH_ENABLE_FAISS"):
-            if importlib.util.find_spec("faiss") is None:
-                self.skipTest("FAISS не установлен.")
+class TestHnswStore(DiagnosticLoggingMixin, unittest.TestCase):
+    def test_hnsw_search_optional(self) -> None:
+        if os.getenv("CONTEXTSEARCH_ENABLE_HNSW"):
+            if importlib.util.find_spec("hnswlib") is None:
+                self.skipTest("hnswlib не установлен.")
 
             with tempfile.TemporaryDirectory() as tmp_dir:
                 db_path = Path(tmp_dir) / "contextsearch.db"
-                collection = FaissCollection(collection_id="test", model_id="hash-minilm-16", dimension=16)
-                store = FaissEmbeddingStore(
-                    collection=collection,
-                    index_root=tmp_dir,
-                    db_path=db_path,
-                )
+                record_repo = SqliteEmbeddingRecordRepository(db_path=db_path)
+                store = HnswEmbeddingStore(index_root=tmp_dir, record_repository=record_repo)
                 embedder = MiniLMEmbedder(dimension=16)
+                spec = EmbeddingSpec(
+                    id="test-doc",
+                    model_name="hash-minilm",
+                    dimension=16,
+                    metric="cosine",
+                    normalize=True,
+                    level="document",
+                )
                 document = Document(id="doc-1", content="пример текста")
-                chunk = Chunk(id="0", document_id=document.id, text=document.content, metadata={})
-                embedding = embedder.embed_texts([chunk.text])[0]
-                store.add([chunk], [embedding])
-                results = store.search(embedding, top_k=1)
+                embedding = embedder.embed_texts([document.content])[0]
+                store.add(spec, "document", [document.id], [embedding])
+                results = store.search(spec, embedding, top_k=1)
                 self.assertEqual(len(results), 1)
         else:
-            self.skipTest("Переменная CONTEXTSEARCH_ENABLE_FAISS не установлена.")
+            self.skipTest("Переменная CONTEXTSEARCH_ENABLE_HNSW не установлена.")
 
 
 class TestInMemoryStore(DiagnosticLoggingMixin, unittest.TestCase):
     def test_in_memory_search(self) -> None:
         store = InMemoryEmbeddingStore()
         embedder = MiniLMEmbedder(dimension=16)
+        spec = EmbeddingSpec(
+            id="test-doc",
+            model_name="hash-minilm",
+            dimension=16,
+            metric="cosine",
+            normalize=True,
+            level="document",
+        )
         document = Document(id="doc-1", content="пример текста")
-        chunk = Chunk(id="1", document_id=document.id, text=document.content, metadata={})
-        embedding = embedder.embed_texts([chunk.text])[0]
-        store.add([chunk], [embedding])
-        results = store.search(embedding, top_k=1)
+        embedding = embedder.embed_texts([document.content])[0]
+        store.add(spec, "document", [document.id], [embedding])
+        results = store.search(spec, embedding, top_k=1)
         self.assertEqual(len(results), 1)
 
 
@@ -94,4 +105,3 @@ class TestChunkRepository(DiagnosticLoggingMixin, unittest.TestCase):
             self.assertIsNotNone(chunk)
             assert chunk is not None
             self.assertEqual(chunk.text, "пример")
-

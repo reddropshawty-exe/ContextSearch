@@ -31,6 +31,8 @@ class FixedWindowSplitter(ChunkSplitter):
                     id=str(uuid.uuid4()),
                     document_id=document.id,
                     text=fragment,
+                    start=start,
+                    end=end,
                     metadata=metadata,
                 )
             )
