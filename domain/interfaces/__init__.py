@@ -1,82 +1,149 @@
-"""Abstract interfaces for the ContextSearch system."""
+"""Абстрактные интерфейсы системы ContextSearch."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Iterable, Sequence
 
-from domain.entities import Chunk, Document, Query, RetrievalResult
+from domain.entities import Chunk, Document, EmbeddingSpec, Query, RetrievalResult
 
 
 class TextExtractor(ABC):
-    """Extracts text from user provided sources (files, URLs, etc.)."""
+    """Извлекает текст из источников пользователя (файлы, URL и т.д.)."""
 
     @abstractmethod
     def extract(self, source: bytes | str) -> str:
-        """Return the textual representation of a source."""
+        """Вернуть текстовое представление источника."""
 
 
 class ChunkSplitter(ABC):
-    """Splits documents into semantic chunks for retrieval."""
+    """Делит документы на чанки для поиска."""
 
     @abstractmethod
     def split(self, document: Document) -> list[Chunk]:
-        """Return chunks for the provided document."""
+        """Вернуть чанки для заданного документа."""
 
 
 class Embedder(ABC):
-    """Turns text (documents or queries) into vector embeddings."""
+    """Преобразует текст (документы или запросы) в векторные эмбеддинги."""
+
+    @property
+    @abstractmethod
+    def model_id(self) -> str:
+        """Вернуть стабильный идентификатор модели эмбеддингов."""
+
+    @property
+    @abstractmethod
+    def dimension(self) -> int:
+        """Вернуть размерность эмбеддингов модели."""
 
     @abstractmethod
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed an iterable of texts into dense vectors."""
+        """Преобразовать список текстов в плотные вектора."""
 
     @abstractmethod
     def embed_query(self, query: Query) -> list[float]:
-        """Embed a user query for retrieval."""
+        """Преобразовать запрос пользователя в вектор для поиска."""
 
 
 class EmbeddingStore(ABC):
-    """Persists embeddings and provides similarity search."""
+    """Хранит эмбеддинги и выполняет поиск по сходству."""
 
     @abstractmethod
-    def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
-        """Store embeddings for the provided chunks."""
+    def add(
+        self,
+        spec: EmbeddingSpec,
+        object_type: str,
+        object_ids: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+    ) -> None:
+        """Сохранить эмбеддинги для объектов указанного типа."""
 
     @abstractmethod
-    def search(self, query_embedding: Sequence[float], top_k: int = 5) -> list[RetrievalResult]:
-        """Return the best matching chunks for the provided query embedding."""
+    def search(
+        self,
+        spec: EmbeddingSpec,
+        query_embedding: Sequence[float],
+        top_k: int = 5,
+    ) -> list[tuple[int, float]]:
+        """Вернуть ann_id и score для эмбеддинга запроса."""
 
 
 class DocumentRepository(ABC):
-    """Persists metadata for documents."""
+    """Хранит метаданные документов."""
 
     @abstractmethod
     def add(self, document: Document) -> None:
-        """Store a document record."""
+        """Сохранить документ."""
 
     @abstractmethod
     def list(self) -> list[Document]:
-        """Return all stored documents."""
+        """Вернуть список всех документов."""
 
     @abstractmethod
     def get(self, document_id: str) -> Document | None:
-        """Retrieve a document by id."""
+        """Получить документ по идентификатору."""
+
+
+class ChunkRepository(ABC):
+    """Хранит метаданные и содержимое чанков."""
+
+    @abstractmethod
+    def add(self, chunk: Chunk) -> str:
+        """Сохранить чанк и вернуть его идентификатор."""
+
+    @abstractmethod
+    def get(self, chunk_id: str) -> Chunk | None:
+        """Получить чанк по идентификатору."""
+
+
+class EmbeddingSpecRepository(ABC):
+    """Хранит спецификации эмбеддингов."""
+
+    @abstractmethod
+    def upsert(self, spec: EmbeddingSpec) -> None:
+        """Создать или обновить спецификацию."""
+
+    @abstractmethod
+    def list(self) -> list[EmbeddingSpec]:
+        """Вернуть список спецификаций."""
+
+    @abstractmethod
+    def get(self, spec_id: str) -> EmbeddingSpec | None:
+        """Получить спецификацию по id."""
+
+
+class EmbeddingRecordRepository(ABC):
+    """Хранит маппинг ann_id к объектам."""
+
+    @abstractmethod
+    def add_records(
+        self,
+        spec_id: str,
+        object_type: str,
+        object_ids: Sequence[str],
+        ann_ids: Sequence[int],
+    ) -> None:
+        """Добавить записи маппинга."""
+
+    @abstractmethod
+    def find_object_ids(self, spec_id: str, ann_ids: Sequence[int]) -> list[str]:
+        """Получить object_id по ann_id."""
 
 
 class QueryRewriter(ABC):
-    """Allows experimentation with query rewriting strategies."""
+    """Позволяет экспериментировать со стратегиями переписывания запросов."""
 
     @abstractmethod
     def rewrite(self, query: Query) -> list[Query]:
-        """Return rewritten variants for the provided query."""
+        """Вернуть варианты переписанного запроса."""
 
 
 class Reranker(ABC):
-    """Applies a reranking strategy after initial retrieval."""
+    """Применяет стратегию переранжирования после первичного поиска."""
 
     @abstractmethod
     def rerank(self, query: Query, results: Iterable[RetrievalResult]) -> list[RetrievalResult]:
-        """Return a reranked list of retrieval results."""
+        """Вернуть список результатов после переранжирования."""
 
 
 __all__ = [
@@ -85,6 +152,9 @@ __all__ = [
     "Embedder",
     "EmbeddingStore",
     "DocumentRepository",
+    "ChunkRepository",
+    "EmbeddingSpecRepository",
+    "EmbeddingRecordRepository",
     "QueryRewriter",
     "Reranker",
 ]
