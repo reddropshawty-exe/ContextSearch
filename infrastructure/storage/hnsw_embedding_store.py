@@ -41,6 +41,11 @@ class HnswEmbeddingStore(EmbeddingStore):
             return
         index = self._get_or_create_index(spec)
         vectors = np.array(embeddings, dtype="float32")
+        if vectors.ndim != 2 or vectors.shape[1] != spec.dimension:
+            raise ValueError(
+                "Неверная размерность эмбеддингов для спецификации "
+                f"{spec.id}: ожидалась {spec.dimension}, получено {vectors.shape}."
+            )
         if spec.normalize:
             vectors = self._normalize(vectors)
 
@@ -58,6 +63,7 @@ class HnswEmbeddingStore(EmbeddingStore):
         index = self._get_or_create_index(spec)
         if index.get_current_count() == 0:
             return []
+        index.set_ef(max(spec.params.get("ef_search", 50), top_k))
         vector = np.array([query_embedding], dtype="float32")
         if spec.normalize:
             vector = self._normalize(vector)

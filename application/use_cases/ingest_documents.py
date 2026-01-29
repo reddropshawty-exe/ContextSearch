@@ -8,14 +8,9 @@ from typing import Iterable
 from uuid import uuid4
 
 from domain.entities import Chunk, Document, EmbeddingSpec
-from domain.interfaces import (
-    ChunkRepository,
-    ChunkSplitter,
-    DocumentRepository,
-    Embedder,
-    EmbeddingStore,
-    TextExtractor,
-)
+from domain.interfaces import ChunkRepository, ChunkSplitter, DocumentRepository, Embedder, EmbeddingStore, TextExtractor
+
+from application.use_cases.embedding_utils import get_embedder_for_spec
 
 
 def ingest_documents(
@@ -23,7 +18,7 @@ def ingest_documents(
     *,
     extractor: TextExtractor,
     splitter: ChunkSplitter,
-    embedder: Embedder,
+    embedders: dict[str, Embedder],
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
     chunk_repository: ChunkRepository,
@@ -67,7 +62,7 @@ def ingest_documents(
             chunk_repository.add(chunk)
             persisted_chunks.append(chunk)
         _index_embeddings(
-            embedder=embedder,
+            embedders=embedders,
             embedding_store=embedding_store,
             embedding_specs=embedding_specs,
             document=document,
@@ -79,13 +74,14 @@ def ingest_documents(
 
 def _index_embeddings(
     *,
-    embedder: Embedder,
+    embedders: dict[str, Embedder],
     embedding_store: EmbeddingStore,
     embedding_specs: list[EmbeddingSpec],
     document: Document,
     chunks: list[Chunk],
 ) -> None:
     for spec in embedding_specs:
+        embedder = get_embedder_for_spec(spec, embedders)
         if spec.level == "document":
             doc_embedding = embedder.embed_texts([document.content])[0]
             embedding_store.add(spec, "document", [document.id], [doc_embedding])

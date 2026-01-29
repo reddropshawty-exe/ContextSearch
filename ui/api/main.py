@@ -41,7 +41,7 @@ def ingest_endpoint(payload: IngestRequest) -> IngestResponse:
         documents,
         extractor=container.extractor,
         splitter=container.splitter,
-        embedder=container.embedder,
+        embedders=container.embedders,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
         chunk_repository=container.chunk_repository,
@@ -60,7 +60,7 @@ def documents_endpoint() -> list[DocumentPayload]:
 def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пользователя")) -> SearchResponse:
     results = search(
         q,
-        embedder=container.embedder,
+        embedders=container.embedders,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
         chunk_repository=container.chunk_repository,
@@ -73,7 +73,8 @@ def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пол�
         {
             "chunk_id": result.chunk.id if result.chunk else None,
             "document_id": result.document_id,
-            "score": result.score,
+            "chunk_score": result.metadata.get("chunk_score", result.score),
+            "document_score": result.metadata.get("document_score"),
             "text": result.chunk.text if result.chunk else None,
         }
         for result in results

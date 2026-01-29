@@ -63,6 +63,7 @@ class Container:
     extractor: TextExtractor
     splitter: ChunkSplitter
     embedder: Embedder
+    embedders: dict[EmbedderName, Embedder]
     embedding_store: EmbeddingStore
     document_repository: DocumentRepository
     chunk_repository: ChunkRepository
@@ -111,17 +112,19 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
     cfg = config or ContainerConfig()
     if _safe_mode_enabled(cfg):
         cfg = _apply_safe_mode(cfg)
+    cfg.embedder_models = _ensure_primary_embedder(cfg.embedder_models, cfg.embedder)
     try:
         extractor = _EXTRACTOR_FACTORIES[cfg.extractor]()
     except KeyError as exc:  # pragma: no cover - защитный код
         raise ValueError(f"Неизвестный экстрактор '{cfg.extractor}'") from exc
     splitter = FixedWindowSplitter()
-    embedder = _build_embedder(cfg)
+    embedders = _build_embedders(cfg)
+    embedder = embedders[cfg.embedder]
     document_repository = SqliteDocumentRepository(db_path="contextsearch.db")
     chunk_repository = SqliteChunkRepository(db_path="contextsearch.db")
     embedding_spec_repository = SqliteEmbeddingSpecRepository(db_path="contextsearch.db")
     embedding_record_repository = SqliteEmbeddingRecordRepository(db_path="contextsearch.db")
-    embedding_specs = _build_embedding_specs(cfg, embedder)
+    embedding_specs = _build_embedding_specs(cfg, embedders)
     for spec in embedding_specs:
         embedding_spec_repository.upsert(spec)
     embedding_store = _build_embedding_store(cfg, embedding_record_repository)
@@ -132,6 +135,7 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
         extractor=extractor,
         splitter=splitter,
         embedder=embedder,
+        embedders=embedders,
         embedding_store=embedding_store,
         document_repository=document_repository,
         chunk_repository=chunk_repository,
@@ -144,29 +148,39 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
 
 
 def _build_embedder(config: ContainerConfig) -> Embedder:
-    if config.embedder in _EMBEDDER_FACTORIES:
-        return _EMBEDDER_FACTORIES[config.embedder]()
+    return _build_embedder_for_model(config, config.embedder)
 
-    model_config = _sentence_model_config(config)
+
+def _build_embedders(config: ContainerConfig) -> dict[EmbedderName, Embedder]:
+    embedders: dict[EmbedderName, Embedder] = {}
+    for model_name in config.embedder_models:
+        embedders[model_name] = _build_embedder_for_model(config, model_name)
+    return embedders
+
+
+def _build_embedder_for_model(config: ContainerConfig, model_name: EmbedderName) -> Embedder:
+    if model_name in _EMBEDDER_FACTORIES:
+        return _EMBEDDER_FACTORIES[model_name]()
+    model_config = _sentence_model_config_for(model_name, config)
     return SentenceTransformersEmbedder(model_config)
 
 
-def _sentence_model_config(config: ContainerConfig) -> SentenceTransformersConfig:
+def _sentence_model_config_for(model_name: EmbedderName, config: ContainerConfig) -> SentenceTransformersConfig:
     query_prefix = None
     passage_prefix = None
-    model_name = config.embeddinggemma_model
-    if config.embedder == "all-minilm":
-        model_name = "sentence-transformers/all-MiniLM-L6-v2"
-    elif config.embedder == "all-mpnet":
-        model_name = "sentence-transformers/all-mpnet-base-v2"
-    elif config.embedder == "multilingual-e5-base":
-        model_name = "intfloat/multilingual-e5-base"
+    resolved_name = config.embeddinggemma_model
+    if model_name == "all-minilm":
+        resolved_name = "sentence-transformers/all-MiniLM-L6-v2"
+    elif model_name == "all-mpnet":
+        resolved_name = "sentence-transformers/all-mpnet-base-v2"
+    elif model_name == "multilingual-e5-base":
+        resolved_name = "intfloat/multilingual-e5-base"
         query_prefix = "query: "
         passage_prefix = "passage: "
-    elif config.embedder == "embedding-gemma":
-        model_name = config.embeddinggemma_model
+    elif model_name == "embedding-gemma":
+        resolved_name = config.embeddinggemma_model
     return SentenceTransformersConfig(
-        model_name=model_name,
+        model_name=resolved_name,
         device=config.device,
         normalize_embeddings=config.normalize_embeddings,
         query_prefix=query_prefix,
@@ -216,19 +230,15 @@ def _apply_safe_mode(config: ContainerConfig) -> ContainerConfig:
     )
 
 
-def _build_embedding_specs(config: ContainerConfig, embedder: Embedder) -> list[EmbeddingSpec]:
+def _build_embedding_specs(
+    config: ContainerConfig,
+    embedders: dict[EmbedderName, Embedder],
+) -> list[EmbeddingSpec]:
     specs: list[EmbeddingSpec] = []
     metric = "cosine"
     for model_name in config.embedder_models:
-        if model_name == config.embedder:
-            dimension = embedder.dimension
-        elif model_name in _EMBEDDER_FACTORIES:
-            temp_embedder = _EMBEDDER_FACTORIES[model_name]()
-            dimension = temp_embedder.dimension
-        else:
-            temp_config = _sentence_model_config(ContainerConfig(embedder=model_name))
-            temp_embedder = SentenceTransformersEmbedder(temp_config)
-            dimension = temp_embedder.dimension
+        embedder = embedders[model_name]
+        dimension = embedder.dimension
         base_id = f"{model_name}-{dimension}"
         specs.append(
             EmbeddingSpec(
@@ -253,6 +263,15 @@ def _build_embedding_specs(config: ContainerConfig, embedder: Embedder) -> list[
             )
         )
     return specs
+
+
+def _ensure_primary_embedder(
+    embedder_models: tuple[EmbedderName, ...],
+    embedder: EmbedderName,
+) -> tuple[EmbedderName, ...]:
+    if embedder in embedder_models:
+        return embedder_models
+    return (embedder, *embedder_models)
 
 
 __all__ = ["Container", "ContainerConfig", "build_default_container"]

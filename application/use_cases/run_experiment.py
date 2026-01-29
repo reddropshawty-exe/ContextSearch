@@ -15,11 +15,13 @@ from domain.interfaces import (
     Reranker,
 )
 
+from application.use_cases.embedding_utils import get_embedder_for_spec
+
 
 def run_experiment(
     queries: Sequence[str],
     *,
-    embedder: Embedder,
+    embedders: dict[str, Embedder],
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
     chunk_repository: ChunkRepository,
@@ -44,6 +46,7 @@ def run_experiment(
         candidate_docs: dict[str, float] = {}
 
         for spec in doc_specs:
+            embedder = get_embedder_for_spec(spec, embedders)
             for rewritten in rewritten_queries:
                 query_embedding = embedder.embed_query(rewritten)
                 ann_results = embedding_store.search(spec, query_embedding, top_k=top_k)
@@ -53,8 +56,9 @@ def run_experiment(
                     candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
 
         for rewritten in rewritten_queries:
-            query_embedding = embedder.embed_query(rewritten)
             for spec in chunk_specs:
+                embedder = get_embedder_for_spec(spec, embedders)
+                query_embedding = embedder.embed_query(rewritten)
                 ann_results = embedding_store.search(spec, query_embedding, top_k=top_k * 2)
                 ann_ids = [ann_id for ann_id, _ in ann_results]
                 chunk_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)

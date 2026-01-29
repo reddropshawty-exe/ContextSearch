@@ -159,7 +159,7 @@ class ContextSearchApp:
         report = ingest_paths(
             self.paths,
             splitter=container.splitter,
-            embedder=container.embedder,
+            embedders=container.embedders,
             embedding_store=container.embedding_store,
             document_repository=container.document_repository,
             chunk_repository=container.chunk_repository,
@@ -181,7 +181,7 @@ class ContextSearchApp:
         container = self.build_container()
         results = search(
             query,
-            embedder=container.embedder,
+            embedders=container.embedders,
             embedding_store=container.embedding_store,
             document_repository=container.document_repository,
             chunk_repository=container.chunk_repository,
@@ -198,9 +198,12 @@ class ContextSearchApp:
             source_uri = result.chunk.metadata.get("source_uri", "")
             display_name = result.document.metadata.get("display_name") if result.document else None
             snippet = result.chunk.text.replace("\n", " ")[:120]
+            chunk_score = result.metadata.get("chunk_score", result.score)
+            document_score = result.metadata.get("document_score")
+            document_score_label = f"{document_score:.3f}" if document_score is not None else "n/a"
             line = (
                 f"{display_name or result.document_id} | "
-                f"оценка={result.score:.3f} | {snippet} | {source_uri}"
+                f"chunk={chunk_score:.3f} | doc={document_score_label} | {snippet} | {source_uri}"
             )
             self.results.append({"source_uri": source_uri})
             self.results_list.insert(END, line)

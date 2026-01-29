@@ -39,7 +39,7 @@ if ingest_submit:
         [(None, document_content)],
         extractor=container.extractor,
         splitter=container.splitter,
-        embedder=container.embedder,
+        embedders=container.embedders,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
         chunk_repository=container.chunk_repository,
@@ -52,7 +52,7 @@ search_query = st.text_input("Запрос", value="контекстный по�
 if st.button("Найти"):
     results = search(
         search_query,
-        embedder=container.embedder,
+        embedders=container.embedders,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
         chunk_repository=container.chunk_repository,
@@ -62,10 +62,13 @@ if st.button("Найти"):
         reranker=container.reranker,
     )
     for result in results:
+        chunk_score = result.metadata.get("chunk_score", result.score)
+        document_score = result.metadata.get("document_score")
         st.write(
             {
                 "документ": result.document_id,
-                "оценка": round(result.score, 3),
+                "chunk_score": round(chunk_score, 3),
+                "document_score": round(document_score, 3) if document_score is not None else None,
                 "текст": result.chunk.text if result.chunk else None,
             }
         )

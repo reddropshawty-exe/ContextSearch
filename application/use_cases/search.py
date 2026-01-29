@@ -14,11 +14,13 @@ from domain.interfaces import (
     Reranker,
 )
 
+from application.use_cases.embedding_utils import get_embedder_for_spec
+
 
 def search(
     query_text: str,
     *,
-    embedder: Embedder,
+    embedders: dict[str, Embedder],
     embedding_store: EmbeddingStore,
     document_repository: DocumentRepository,
     chunk_repository: ChunkRepository,
@@ -38,6 +40,7 @@ def search(
     candidate_docs: dict[str, float] = {}
 
     for spec in doc_specs:
+        embedder = get_embedder_for_spec(spec, embedders)
         for rewritten in expanded_queries:
             query_embedding = embedder.embed_query(rewritten)
             ann_results = embedding_store.search(spec, query_embedding, top_k=top_k)
@@ -48,8 +51,9 @@ def search(
 
     aggregated_results: list[RetrievalResult] = []
     for rewritten in expanded_queries:
-        query_embedding = embedder.embed_query(rewritten)
         for spec in chunk_specs:
+            embedder = get_embedder_for_spec(spec, embedders)
+            query_embedding = embedder.embed_query(rewritten)
             ann_results = embedding_store.search(spec, query_embedding, top_k=top_k * 2)
             ann_ids = [ann_id for ann_id, _ in ann_results]
             chunk_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
@@ -65,6 +69,10 @@ def search(
                         score=score,
                         chunk=chunk,
                         chunk_text_preview=chunk.text[:200],
+                        metadata={
+                            "chunk_score": score,
+                            "document_score": candidate_docs.get(chunk.document_id),
+                        },
                     )
                 )
 
