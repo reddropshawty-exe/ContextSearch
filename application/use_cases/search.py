@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from rank_bm25 import BM25Okapi
+
 from domain.entities import Chunk, EmbeddingSpec, Query, RetrievalResult
 from domain.interfaces import (
     ChunkRepository,
@@ -38,6 +40,7 @@ def search(
     doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
     chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
     candidate_docs: dict[str, float] = {}
+    bm25_scores = _bm25_document_scores(query_text, document_repository)
 
     for spec in doc_specs:
         embedder = get_embedder_for_spec(spec, embedders)
@@ -50,6 +53,10 @@ def search(
                 candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
 
     aggregated_results: list[RetrievalResult] = []
+    doc_rrf_scores = _rrf_scores(
+        _ranked_ids(candidate_docs),
+        _ranked_ids(bm25_scores),
+    )
     for rewritten in expanded_queries:
         for spec in chunk_specs:
             embedder = get_embedder_for_spec(spec, embedders)
@@ -61,17 +68,20 @@ def search(
                 chunk = chunk_repository.get(chunk_id)
                 if chunk is None:
                     continue
-                if candidate_docs and chunk.document_id not in candidate_docs:
-                    continue
+                doc_vector_score = candidate_docs.get(chunk.document_id)
+                bm25_score = bm25_scores.get(chunk.document_id)
+                doc_rrf_score = doc_rrf_scores.get(chunk.document_id, 0.0)
                 aggregated_results.append(
                     RetrievalResult(
                         document_id=chunk.document_id,
-                        score=score,
+                        score=score + doc_rrf_score,
                         chunk=chunk,
                         chunk_text_preview=chunk.text[:200],
                         metadata={
                             "chunk_score": score,
-                            "document_score": candidate_docs.get(chunk.document_id),
+                            "document_vector_score": doc_vector_score,
+                            "bm25_score": bm25_score,
+                            "document_rrf_score": doc_rrf_score,
                         },
                     )
                 )
@@ -93,3 +103,34 @@ def _deduplicate_results(results: list[RetrievalResult]) -> list[RetrievalResult
         if existing is None or result.score > existing.score:
             merged[chunk_id] = result
     return list(merged.values())
+
+
+def _bm25_document_scores(query_text: str, document_repository: DocumentRepository) -> dict[str, float]:
+    documents = document_repository.list()
+    if not documents:
+        return {}
+    corpus = [_tokenize(doc.content) for doc in documents]
+    if not any(corpus):
+        return {}
+    bm25 = BM25Okapi(corpus)
+    query_tokens = _tokenize(query_text)
+    if not query_tokens:
+        return {}
+    scores = bm25.get_scores(query_tokens)
+    return {doc.id: float(score) for doc, score in zip(documents, scores)}
+
+
+def _tokenize(text: str) -> list[str]:
+    return [token for token in text.lower().split() if token]
+
+
+def _ranked_ids(scores: dict[str, float]) -> list[str]:
+    return [doc_id for doc_id, _score in sorted(scores.items(), key=lambda item: item[1], reverse=True)]
+
+
+def _rrf_scores(*rankings: list[str], k: int = 60) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, doc_id in enumerate(ranking, start=1):
+            merged[doc_id] = merged.get(doc_id, 0.0) + 1.0 / (k + rank)
+    return merged

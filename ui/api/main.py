@@ -74,7 +74,8 @@ def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пол�
             "chunk_id": result.chunk.id if result.chunk else None,
             "document_id": result.document_id,
             "chunk_score": result.metadata.get("chunk_score", result.score),
-            "document_score": result.metadata.get("document_score"),
+            "document_score": result.metadata.get("document_vector_score"),
+            "bm25_score": result.metadata.get("bm25_score"),
             "text": result.chunk.text if result.chunk else None,
         }
         for result in results

@@ -83,7 +83,6 @@ class ContainerConfig:
     rewriter: RewriterName = "simple"
     embedding_store: EmbeddingStoreName = "hnsw"
     profile: ProfileName = "stable"
-    collection_id: str | None = None
     device: str = "cpu"
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
@@ -220,7 +219,6 @@ def _apply_safe_mode(config: ContainerConfig) -> ContainerConfig:
         rewriter="simple",
         embedding_store="in_memory",
         profile=config.profile,
-        collection_id=config.collection_id,
         device=config.device,
         normalize_embeddings=config.normalize_embeddings,
         embeddinggemma_model=config.embeddinggemma_model,

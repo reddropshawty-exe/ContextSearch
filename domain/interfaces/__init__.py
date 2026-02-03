@@ -129,6 +129,10 @@ class EmbeddingRecordRepository(ABC):
     def find_object_ids(self, spec_id: str, ann_ids: Sequence[int]) -> list[str]:
         """Получить object_id по ann_id."""
 
+    @abstractmethod
+    def list_object_ids(self, spec_id: str, object_type: str) -> list[str]:
+        """Вернуть все object_id для спецификации и типа объекта."""
+
 
 class QueryRewriter(ABC):
     """Позволяет экспериментировать со стратегиями переписывания запросов."""

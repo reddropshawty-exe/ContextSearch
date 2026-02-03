@@ -43,7 +43,6 @@ class ContextSearchApp:
         self.profile_var = StringVar(value="stable")
         self.embedder_var = StringVar(value="all-minilm")
         self.rewriter_var = StringVar(value="simple")
-        self.collection_var = StringVar(value="experimental")
         self.store_var = StringVar(value="in_memory")
         self.safe_mode_var = BooleanVar(value=False)
         self.status_var = StringVar(value="Конфигурация: не выбрана")
@@ -69,8 +68,6 @@ class ContextSearchApp:
         Combobox(settings, textvariable=self.rewriter_var, values=["simple", "llm"], width=12).pack(
             side=LEFT, padx=5
         )
-        Label(settings, text="Коллекция").pack(side=LEFT)
-        Entry(settings, textvariable=self.collection_var, width=18).pack(side=LEFT, padx=5)
         Label(settings, text="Хранилище").pack(side=LEFT)
         Combobox(settings, textvariable=self.store_var, values=["in_memory", "hnsw"], width=12).pack(
             side=LEFT, padx=5
@@ -112,7 +109,6 @@ class ContextSearchApp:
             profile=profile,
             embedder=self.embedder_var.get(),
             rewriter=self.rewriter_var.get(),
-            collection_id=self.collection_var.get() or None if profile == "experimental" else None,
             embedding_store=self.store_var.get(),
             safe_mode=self.safe_mode_var.get(),
         )
@@ -120,7 +116,6 @@ class ContextSearchApp:
             config.profile,
             config.embedder,
             config.rewriter,
-            config.collection_id,
             config.safe_mode,
             config.embedding_store,
         )
@@ -199,18 +194,31 @@ class ContextSearchApp:
             display_name = result.document.metadata.get("display_name") if result.document else None
             snippet = result.chunk.text.replace("\n", " ")[:120]
             chunk_score = result.metadata.get("chunk_score", result.score)
-            document_score = result.metadata.get("document_score")
+            document_score = result.metadata.get("document_vector_score")
+            bm25_score = result.metadata.get("bm25_score")
             document_score_label = f"{document_score:.3f}" if document_score is not None else "n/a"
+            bm25_score_label = f"{bm25_score:.3f}" if bm25_score is not None else "n/a"
             line = (
                 f"{display_name or result.document_id} | "
-                f"chunk={chunk_score:.3f} | doc={document_score_label} | {snippet} | {source_uri}"
+                f"chunk={chunk_score:.3f} | doc={document_score_label} | bm25={bm25_score_label} | "
+                f"{snippet} | {source_uri}"
             )
             self.results.append({"source_uri": source_uri})
             self.results_list.insert(END, line)
 
     def refresh_documents(self) -> None:
         container = self.build_container()
-        documents = container.document_repository.list()
+        document_spec = next(
+            (spec for spec in container.embedding_specs if spec.level == "document" and spec.model_name == self.embedder_var.get()),
+            None,
+        )
+        if document_spec is None:
+            documents = container.document_repository.list()
+        else:
+            document_ids = set(
+                container.embedding_record_repository.list_object_ids(document_spec.id, "document")
+            )
+            documents = [doc for doc in container.document_repository.list() if doc.id in document_ids]
         self._documents_cache = documents
         self.documents_list.delete(0, END)
         for doc in documents:

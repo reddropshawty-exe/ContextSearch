@@ -75,5 +75,16 @@ class SqliteEmbeddingRecordRepository(EmbeddingRecordRepository):
         ann_to_object = {row[0]: row[1] for row in rows}
         return [ann_to_object[ann_id] for ann_id in ann_ids if ann_id in ann_to_object]
 
+    def list_object_ids(self, spec_id: str, object_type: str) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT object_id FROM embedding_records
+                WHERE embedding_spec_id = ? AND object_type = ?
+                """,
+                (spec_id, object_type),
+            ).fetchall()
+        return [row[0] for row in rows]
+
 
 __all__ = ["SqliteEmbeddingRecordRepository"]

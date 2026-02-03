@@ -63,12 +63,14 @@ if st.button("Найти"):
     )
     for result in results:
         chunk_score = result.metadata.get("chunk_score", result.score)
-        document_score = result.metadata.get("document_score")
+        document_score = result.metadata.get("document_vector_score")
+        bm25_score = result.metadata.get("bm25_score")
         st.write(
             {
                 "документ": result.document_id,
                 "chunk_score": round(chunk_score, 3),
                 "document_score": round(document_score, 3) if document_score is not None else None,
+                "bm25_score": round(bm25_score, 3) if bm25_score is not None else None,
                 "текст": result.chunk.text if result.chunk else None,
             }
         )
@@ -79,6 +81,12 @@ if st.button("Обновить список документов"):
 
 documents = st.session_state.get("documents", [])
 if documents:
+    document_spec = next((spec for spec in container.embedding_specs if spec.level == "document"), None)
+    if document_spec is not None:
+        indexed_ids = set(
+            container.embedding_record_repository.list_object_ids(document_spec.id, "document")
+        )
+        documents = [doc for doc in documents if doc.id in indexed_ids]
     for doc in documents:
         st.write(
             {
