@@ -8,7 +8,6 @@ from pathlib import Path
 from tkinter import (
     END,
     LEFT,
-    RIGHT,
     BooleanVar,
     Button,
     Checkbutton,
@@ -25,7 +24,7 @@ from tkinter.ttk import Combobox
 
 from application.use_cases.ingest_paths import ingest_paths
 from application.use_cases.search import search
-from domain.entities import Document
+from domain.entities import Document, RetrievalResult
 from infrastructure.config import ContainerConfig, build_default_container
 from ui.logging_utils import setup_logging
 
@@ -37,15 +36,17 @@ class ContextSearchApp:
         self.root.title("ContextSearch")
         self.paths: list[Path] = []
         self.results: list[dict[str, str]] = []
-        self._container_cache: tuple[tuple[str, str, str, str | None], object] | None = None
+        self._container_cache: tuple[tuple[str, str, str], object] | None = None
         self._documents_cache: list[Document] = []
+        self._search_results_cache: list[RetrievalResult] = []
+        self._result_mode = "documents"
 
-        self.profile_var = StringVar(value="stable")
         self.embedder_var = StringVar(value="all-minilm")
-        self.rewriter_var = StringVar(value="simple")
-        self.store_var = StringVar(value="in_memory")
-        self.safe_mode_var = BooleanVar(value=False)
+        self.hnsw_var = BooleanVar(value=False)
+        self.llm_rewrite_var = BooleanVar(value=False)
+        self.bm25_var = BooleanVar(value=True)
         self.status_var = StringVar(value="Конфигурация: не выбрана")
+        self.spec_meta_var = StringVar(value="Размерность: -, Метрика: -, Проиндексировано: 0")
 
         self._build_layout()
 
@@ -53,70 +54,68 @@ class ContextSearchApp:
         settings = Frame(self.root)
         settings.pack(padx=10, pady=10)
 
-        Label(settings, text="Профиль").pack(side=LEFT)
-        Combobox(settings, textvariable=self.profile_var, values=["stable", "experimental"], width=12).pack(
-            side=LEFT, padx=5
-        )
-        Label(settings, text="Эмбеддер").pack(side=LEFT)
+        Label(settings, text="Модель").pack(side=LEFT)
         Combobox(
             settings,
             textvariable=self.embedder_var,
             values=["all-minilm", "all-mpnet", "multilingual-e5-base", "embedding-gemma"],
             width=22,
         ).pack(side=LEFT, padx=5)
-        Label(settings, text="Переписыватель").pack(side=LEFT)
-        Combobox(settings, textvariable=self.rewriter_var, values=["simple", "llm"], width=12).pack(
-            side=LEFT, padx=5
-        )
-        Label(settings, text="Хранилище").pack(side=LEFT)
-        Combobox(settings, textvariable=self.store_var, values=["in_memory", "hnsw"], width=12).pack(
-            side=LEFT, padx=5
-        )
-        Checkbutton(settings, text="Безопасный режим", variable=self.safe_mode_var).pack(side=LEFT, padx=5)
+        Checkbutton(settings, text="HNSW", variable=self.hnsw_var).pack(side=LEFT, padx=5)
+        Button(settings, text="Обновить документы", command=self.refresh_documents).pack(side=LEFT, padx=5)
+
+        Label(self.root, textvariable=self.spec_meta_var).pack(pady=3)
 
         controls = Frame(self.root)
         controls.pack(padx=10, pady=5)
-        Button(controls, text="Выбрать папку", command=self.choose_folder).pack(side=LEFT, padx=5)
-        Button(controls, text="Выбрать файлы", command=self.choose_files).pack(side=LEFT, padx=5)
+        Button(controls, text="Добавить файлы", command=self.choose_files).pack(side=LEFT, padx=5)
+        Button(controls, text="Добавить папку", command=self.choose_folder).pack(side=LEFT, padx=5)
+        Button(controls, text="Удалить выбранное", command=self.remove_selected_path).pack(side=LEFT, padx=5)
         Button(controls, text="Индексировать", command=self.index_documents).pack(side=LEFT, padx=5)
 
-        self.paths_list = Listbox(self.root, width=80, height=6)
+        self.paths_list = Listbox(self.root, width=100, height=6)
         self.paths_list.pack(padx=10, pady=5)
 
         search_frame = Frame(self.root)
         search_frame.pack(padx=10, pady=5)
-        Label(search_frame, text="Запрос").pack(side=LEFT)
+        Label(search_frame, text="Какой документ вы ищете?").pack(side=LEFT)
         self.query_entry = Entry(search_frame, width=50)
         self.query_entry.pack(side=LEFT, padx=5)
-        Button(search_frame, text="Найти", command=self.search_query).pack(side=LEFT, padx=5)
+        Button(search_frame, text="Поиск", command=self.search_query).pack(side=LEFT, padx=5)
 
-        self.results_list = Listbox(self.root, width=100, height=10)
+        toggles = Frame(self.root)
+        toggles.pack(padx=10, pady=3)
+        Checkbutton(toggles, text="BM25", variable=self.bm25_var).pack(side=LEFT, padx=5)
+        Checkbutton(toggles, text="LLM улучшение запроса", variable=self.llm_rewrite_var).pack(side=LEFT, padx=5)
+
+        results_controls = Frame(self.root)
+        results_controls.pack(padx=10, pady=3)
+        Button(results_controls, text="Показать документы", command=self.show_document_results).pack(side=LEFT, padx=5)
+        Button(results_controls, text="Показать фрагменты", command=self.show_chunk_results).pack(side=LEFT, padx=5)
+
+        self.results_list = Listbox(self.root, width=120, height=10)
         self.results_list.pack(padx=10, pady=5)
-
         Button(self.root, text="Открыть выбранный", command=self.open_selected).pack(pady=5)
-        Label(self.root, textvariable=self.status_var).pack(pady=5)
 
         documents_frame = Frame(self.root)
         documents_frame.pack(padx=10, pady=5)
-        Button(documents_frame, text="Обновить документы", command=self.refresh_documents).pack(side=LEFT, padx=5)
-        self.documents_list = Listbox(self.root, width=100, height=6)
+        Label(documents_frame, text="Индексированные документы по активной спеке").pack(side=LEFT, padx=5)
+        self.documents_list = Listbox(self.root, width=120, height=6)
         self.documents_list.pack(padx=10, pady=5)
         Button(self.root, text="Открыть выбранный документ", command=self.open_selected_document).pack(pady=5)
 
+        Label(self.root, textvariable=self.status_var).pack(pady=5)
+
     def build_container(self):
-        profile = self.profile_var.get()
         config = ContainerConfig(
-            profile=profile,
             embedder=self.embedder_var.get(),
-            rewriter=self.rewriter_var.get(),
-            embedding_store=self.store_var.get(),
-            safe_mode=self.safe_mode_var.get(),
+            rewriter="llm" if self.llm_rewrite_var.get() else "simple",
+            embedding_store="hnsw" if self.hnsw_var.get() else "in_memory",
+            safe_mode=False,
         )
         cache_key = (
-            config.profile,
             config.embedder,
             config.rewriter,
-            config.safe_mode,
             config.embedding_store,
         )
         if self._container_cache and self._container_cache[0] == cache_key:
@@ -125,9 +124,19 @@ class ContextSearchApp:
         self._container_cache = (cache_key, container)
         self.status_var.set(
             f"Конфигурация: эмбеддер={container.embedder.model_id}, "
-            f"хранилище={self.store_var.get()}, specs={len(container.embedding_specs)}"
+            f"хранилище={config.embedding_store}, specs={len(container.embedding_specs)}"
         )
         return container
+
+    def _active_document_spec(self, container):
+        return next(
+            (
+                spec
+                for spec in container.embedding_specs
+                if spec.level == "document" and spec.model_name == self.embedder_var.get()
+            ),
+            None,
+        )
 
     def choose_folder(self) -> None:
         folder = filedialog.askdirectory()
@@ -145,6 +154,15 @@ class ContextSearchApp:
         for file_path in files:
             self.paths.append(Path(file_path))
             self.paths_list.insert(END, file_path)
+
+    def remove_selected_path(self) -> None:
+        selection = self.paths_list.curselection()
+        if not selection:
+            return
+        for idx in sorted(selection, reverse=True):
+            if idx < len(self.paths):
+                self.paths.pop(idx)
+            self.paths_list.delete(idx)
 
     def index_documents(self) -> None:
         if not self.paths:
@@ -184,10 +202,55 @@ class ContextSearchApp:
             embedding_specs=container.embedding_specs,
             query_rewriter=container.query_rewriter,
             reranker=container.reranker,
+            use_bm25=self.bm25_var.get(),
         )
+        self._search_results_cache = results
+        self.show_document_results()
+
+    def show_document_results(self) -> None:
+        self._result_mode = "documents"
         self.results_list.delete(0, END)
         self.results = []
-        for result in results:
+        grouped: dict[str, dict[str, object]] = {}
+        for result in self._search_results_cache:
+            if result.chunk is None:
+                continue
+            key = result.document_id
+            chunk_score = float(result.metadata.get("chunk_score", result.score))
+            doc_vector = result.metadata.get("document_vector_score")
+            bm25_score = result.metadata.get("bm25_score")
+            current = grouped.get(key)
+            if current is None:
+                grouped[key] = {
+                    "result": result,
+                    "best_chunk": chunk_score,
+                    "doc_vector": doc_vector,
+                    "bm25": bm25_score,
+                    "chunks": 1,
+                }
+            else:
+                current["best_chunk"] = max(float(current["best_chunk"]), chunk_score)
+                current["chunks"] = int(current["chunks"]) + 1
+        ranked = sorted(grouped.values(), key=lambda item: float(item["best_chunk"]), reverse=True)
+        for item in ranked:
+            result = item["result"]
+            assert isinstance(result, RetrievalResult)
+            source_uri = result.chunk.metadata.get("source_uri", "") if result.chunk else ""
+            display_name = result.document.metadata.get("display_name") if result.document else result.document_id
+            doc_vector = item["doc_vector"]
+            bm25_score = item["bm25"]
+            line = (
+                f"{display_name} | chunks={item['chunks']} | doc={self._score_label(doc_vector)} | "
+                f"bm25={self._score_label(bm25_score)} | best_chunk={float(item['best_chunk']):.3f}"
+            )
+            self.results.append({"source_uri": source_uri})
+            self.results_list.insert(END, line)
+
+    def show_chunk_results(self) -> None:
+        self._result_mode = "chunks"
+        self.results_list.delete(0, END)
+        self.results = []
+        for result in self._search_results_cache:
             if result.chunk is None:
                 continue
             source_uri = result.chunk.metadata.get("source_uri", "")
@@ -196,29 +259,33 @@ class ContextSearchApp:
             chunk_score = result.metadata.get("chunk_score", result.score)
             document_score = result.metadata.get("document_vector_score")
             bm25_score = result.metadata.get("bm25_score")
-            document_score_label = f"{document_score:.3f}" if document_score is not None else "n/a"
-            bm25_score_label = f"{bm25_score:.3f}" if bm25_score is not None else "n/a"
             line = (
-                f"{display_name or result.document_id} | "
-                f"chunk={chunk_score:.3f} | doc={document_score_label} | bm25={bm25_score_label} | "
-                f"{snippet} | {source_uri}"
+                f"{display_name or result.document_id} | chunk={float(chunk_score):.3f} | "
+                f"doc={self._score_label(document_score)} | bm25={self._score_label(bm25_score)} | "
+                f"{snippet}"
             )
             self.results.append({"source_uri": source_uri})
             self.results_list.insert(END, line)
 
+    @staticmethod
+    def _score_label(score: object) -> str:
+        if score is None:
+            return "n/a"
+        return f"{float(score):.3f}"
+
     def refresh_documents(self) -> None:
         container = self.build_container()
-        document_spec = next(
-            (spec for spec in container.embedding_specs if spec.level == "document" and spec.model_name == self.embedder_var.get()),
-            None,
-        )
+        document_spec = self._active_document_spec(container)
         if document_spec is None:
             documents = container.document_repository.list()
+            self.spec_meta_var.set("Размерность: -, Метрика: -, Проиндексировано: 0")
         else:
-            document_ids = set(
-                container.embedding_record_repository.list_object_ids(document_spec.id, "document")
-            )
+            document_ids = set(container.embedding_record_repository.list_object_ids(document_spec.id, "document"))
             documents = [doc for doc in container.document_repository.list() if doc.id in document_ids]
+            self.spec_meta_var.set(
+                f"Размерность: {document_spec.dimension}, Метрика: {document_spec.metric}, "
+                f"Проиндексировано: {len(documents)}"
+            )
         self._documents_cache = documents
         self.documents_list.delete(0, END)
         for doc in documents:
@@ -248,6 +315,8 @@ class ContextSearchApp:
             messagebox.showinfo("ContextSearch", "Выберите результат для открытия.")
             return
         index = selection[0]
+        if index >= len(self.results):
+            return
         path = self.results[index]["source_uri"]
         if not path or not Path(path).exists():
             messagebox.showwarning("ContextSearch", "Файл не найден.")

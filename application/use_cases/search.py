@@ -31,6 +31,7 @@ def search(
     query_rewriter: QueryRewriter,
     reranker: Reranker,
     top_k: int = 5,
+    use_bm25: bool = True,
 ) -> list[RetrievalResult]:
     """Искать документы, релевантные заданному запросу."""
 
@@ -40,7 +41,7 @@ def search(
     doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
     chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
     candidate_docs: dict[str, float] = {}
-    bm25_scores = _bm25_document_scores(query_text, document_repository)
+    bm25_scores = _bm25_document_scores(query_text, document_repository) if use_bm25 else {}
 
     for spec in doc_specs:
         embedder = get_embedder_for_spec(spec, embedders)
