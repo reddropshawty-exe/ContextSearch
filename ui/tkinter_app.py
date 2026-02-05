@@ -25,13 +25,41 @@ from tkinter import (
     filedialog,
     messagebox,
 )
-from tkinter.ttk import Combobox, Progressbar
+from tkinter.ttk import Combobox, Progressbar, Style
 
 from application.use_cases.ingest_paths import ingest_paths
 from application.use_cases.search import search
 from domain.entities import Document, RetrievalResult
 from infrastructure.config import ContainerConfig, build_default_container
 from ui.logging_utils import setup_logging
+
+
+
+PALETTE = {
+    "app_bg": "#111827",
+    "panel_bg": "#1f2937",
+    "card_bg": "#243244",
+    "modal_bg": "#0f172a",
+    "text": "#e5e7eb",
+    "muted_text": "#9ca3af",
+    "input_bg": "#f8fafc",
+    "input_text": "#0f172a",
+    "primary": "#3b82f6",
+    "primary_text": "#f8fafc",
+    "secondary": "#334155",
+    "secondary_text": "#e2e8f0",
+    "success": "#16a34a",
+    "danger": "#ef4444",
+    "accent": "#f59e0b",
+    "list_bg": "#0b1220",
+}
+
+FONTS = {
+    "title": ("Inter", 18, "bold"),
+    "subtitle": ("Inter", 14, "bold"),
+    "body": ("Inter", 11),
+    "small": ("Inter", 10),
+}
 
 MODEL_CHOICES: list[tuple[str, str]] = [
     ("MiniLM", "all-minilm"),
@@ -46,6 +74,9 @@ class ContextSearchApp:
         self.root = Tk()
         self.root.title("Контекстный поиск")
         self.root.geometry("1180x760")
+        self.root.configure(bg=PALETTE["app_bg"])
+        self._style = Style(self.root)
+        self._apply_theme()
 
         self.query_var = StringVar(value="")
         self.bm25_var = BooleanVar(value=False)
@@ -66,36 +97,95 @@ class ContextSearchApp:
         self._build_layout()
         self.refresh_documents()
 
+    def _apply_theme(self) -> None:
+        self._style.theme_use("clam")
+        self._style.configure(
+            "TCombobox",
+            fieldbackground=PALETTE["input_bg"],
+            background=PALETTE["secondary"],
+            foreground=PALETTE["input_text"],
+            bordercolor=PALETTE["secondary"],
+            lightcolor=PALETTE["secondary"],
+            darkcolor=PALETTE["secondary"],
+        )
+        self._style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", PALETTE["input_bg"])],
+            selectbackground=[("readonly", PALETTE["primary"])],
+            selectforeground=[("readonly", PALETTE["primary_text"])],
+        )
+
+    def _make_button(self, parent: Frame | Toplevel, text: str, command, *, variant: str = "secondary", **kwargs) -> Button:
+        color_map = {
+            "primary": (PALETTE["primary"], PALETTE["primary_text"]),
+            "success": (PALETTE["success"], PALETTE["primary_text"]),
+            "danger": (PALETTE["danger"], PALETTE["primary_text"]),
+            "ghost": (PALETTE["card_bg"], PALETTE["text"]),
+            "secondary": (PALETTE["secondary"], PALETTE["secondary_text"]),
+        }
+        bg, fg = color_map.get(variant, color_map["secondary"])
+        return Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=bg,
+            activeforeground=fg,
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=6,
+            font=FONTS["body"],
+            cursor="hand2",
+            **kwargs,
+        )
+
     def _build_layout(self) -> None:
-        main = Frame(self.root)
+        main = Frame(self.root, bg=PALETTE["app_bg"])
         main.pack(fill=BOTH, expand=True, padx=12, pady=12)
 
-        top = Frame(main)
+        top = Frame(main, bg=PALETTE["app_bg"])
         top.pack(fill=X, expand=False)
 
         self._build_search_zone(top)
         self._build_config_zone(top)
         self._build_bottom_zone(main)
 
-        Label(main, textvariable=self.status_var).pack(anchor="w", pady=6)
+        Label(main, textvariable=self.status_var, bg=PALETTE["app_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(anchor="w", pady=6)
 
     def _build_search_zone(self, parent: Frame) -> None:
-        zone = Frame(parent, bd=2, relief="groove")
+        zone = Frame(parent, bd=0, bg=PALETTE["panel_bg"], padx=12, pady=12)
         zone.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 10))
 
-        Label(zone, text="ПОИСК ДОКУМЕНТА", font=("Arial", 18, "bold")).pack(pady=10)
-        self.query_entry = Entry(zone, textvariable=self.query_var, width=65)
+        Label(zone, text="ПОИСК ДОКУМЕНТА", font=FONTS["title"], bg=PALETTE["panel_bg"], fg=PALETTE["text"]).pack(pady=10)
+        self.query_entry = Entry(
+            zone,
+            textvariable=self.query_var,
+            width=65,
+            bg=PALETTE["input_bg"],
+            fg=PALETTE["input_text"],
+            insertbackground=PALETTE["input_text"],
+            relief="flat",
+            font=FONTS["body"],
+        )
         self.query_entry.pack(padx=10, pady=6)
         self.query_entry.insert(0, "Какой документ вы ищете?..")
         self.query_entry.bind("<FocusIn>", self._on_query_focus_in)
         self.query_entry.bind("<FocusOut>", self._on_query_focus_out)
         self.query_entry.bind("<KeyRelease>", lambda _e: self._sync_search_button_state())
 
-        Frame(zone, height=4).pack()
-        Button(zone, text="☐ BM25", command=self._toggle_bm25, width=30).pack(anchor="w", padx=16, pady=3)
-        Button(zone, text="☐ LLM улучшение запроса", command=self._toggle_llm, width=30).pack(anchor="w", padx=16, pady=3)
+        Frame(zone, height=4, bg=PALETTE["panel_bg"]).pack()
+        self._make_button(zone, text="☐ BM25", command=self._toggle_bm25, width=30, variant="ghost").pack(anchor="w", padx=16, pady=3)
+        self._make_button(
+            zone,
+            text="☐ LLM улучшение запроса",
+            command=self._toggle_llm,
+            width=30,
+            variant="ghost",
+        ).pack(anchor="w", padx=16, pady=3)
 
-        self.search_btn = Button(zone, text="ПОИСК", command=self.search_query, state="disabled", width=28)
+        self.search_btn = self._make_button(zone, text="ПОИСК", command=self.search_query, state="disabled", width=28, variant="primary")
         self.search_btn.pack(pady=12)
 
         self._bm25_btn = zone.winfo_children()[-3]
@@ -103,45 +193,53 @@ class ContextSearchApp:
         self._update_toggle_labels()
 
     def _build_config_zone(self, parent: Frame) -> None:
-        panel = Frame(parent, width=320, bd=2, relief="groove")
+        panel = Frame(parent, width=320, bd=0, bg=PALETTE["panel_bg"], padx=10, pady=10)
         panel.pack(side=LEFT, fill=Y, expand=False)
         panel.pack_propagate(False)
 
-        Label(panel, text="Текущая конфигурация", font=("Arial", 14, "bold")).pack(pady=8)
+        Label(panel, text="Текущая конфигурация", font=FONTS["subtitle"], bg=PALETTE["panel_bg"], fg=PALETTE["text"]).pack(pady=8)
 
-        card = Frame(panel, bd=2, relief="ridge")
+        card = Frame(panel, bd=0, bg=PALETTE["card_bg"], padx=6, pady=6)
         card.pack(fill=X, padx=12, pady=8)
 
-        self.config_name_btn = Button(
+        self.config_name_btn = self._make_button(
             card,
             text="MiniLM - In-memory",
             command=lambda: self.open_config_modal(mode="view"),
-            relief="flat",
-            fg="blue",
+            variant="ghost",
         )
         self.config_name_btn.pack(fill=X, padx=8, pady=8)
 
-        Label(card, textvariable=self.config_count_var).pack(anchor="w", padx=10, pady=4)
+        Label(card, textvariable=self.config_count_var, bg=PALETTE["card_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(anchor="w", padx=10, pady=4)
 
-        btns = Frame(card)
+        btns = Frame(card, bg=PALETTE["card_bg"])
         btns.pack(fill=X, padx=8, pady=8)
-        Button(btns, text="Показать", command=lambda: self.open_config_modal(mode="view")).pack(fill=X, pady=3)
-        Button(btns, text="Сменить конфиг", command=lambda: self.open_config_modal(mode="change")).pack(fill=X, pady=3)
+        self._make_button(btns, text="Показать", command=lambda: self.open_config_modal(mode="view")).pack(fill=X, pady=3)
+        self._make_button(btns, text="Сменить конфиг", command=lambda: self.open_config_modal(mode="change"), variant="primary").pack(fill=X, pady=3)
 
     def _build_bottom_zone(self, parent: Frame) -> None:
-        zone = Frame(parent, bd=2, relief="groove")
+        zone = Frame(parent, bd=0, bg=PALETTE["panel_bg"], padx=10, pady=10)
         zone.pack(fill=X, pady=(12, 0))
 
-        top = Frame(zone)
+        top = Frame(zone, bg=PALETTE["panel_bg"])
         top.pack(fill=X, padx=10, pady=8)
 
-        Button(top, text="+", width=4, command=self.open_add_documents_modal).pack(side=LEFT, padx=6)
-        Label(top, textvariable=self.selected_docs_var).pack(side=LEFT, padx=12)
+        self._make_button(top, text="+", width=4, command=self.open_add_documents_modal, variant="primary").pack(side=LEFT, padx=6)
+        Label(top, textvariable=self.selected_docs_var, bg=PALETTE["panel_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(side=LEFT, padx=12)
 
-        Button(top, text="Посмотреть", command=lambda: self.open_config_modal(mode="view")).pack(side=LEFT, padx=6)
-        Button(top, text="Индексировать", command=self.index_documents).pack(side=LEFT, padx=6)
+        self._make_button(top, text="Посмотреть", command=lambda: self.open_config_modal(mode="view")).pack(side=LEFT, padx=6)
+        self._make_button(top, text="Индексировать", command=self.index_documents, variant="success").pack(side=LEFT, padx=6)
 
-        self.documents_list = Listbox(zone, width=140, height=7)
+        self.documents_list = Listbox(
+            zone,
+            width=140,
+            height=7,
+            bg=PALETTE["list_bg"],
+            fg=PALETTE["text"],
+            selectbackground=PALETTE["primary"],
+            relief="flat",
+            font=FONTS["body"],
+        )
         self.documents_list.pack(fill=X, padx=10, pady=(0, 10))
 
     def _on_query_focus_in(self, _event) -> None:
@@ -226,25 +324,26 @@ class ContextSearchApp:
         modal.transient(self.root)
         modal.grab_set()
         modal.geometry("560x540")
+        modal.configure(bg=PALETTE["modal_bg"])
 
-        Button(modal, text="✕", command=modal.destroy).pack(anchor="ne", padx=6, pady=6)
+        self._make_button(modal, text="✕", command=modal.destroy, variant="danger", width=3).pack(anchor="ne", padx=6, pady=6)
 
-        controls = Frame(modal)
+        controls = Frame(modal, bg=PALETTE["modal_bg"])
         controls.pack(fill=X, padx=12, pady=8)
-        Button(controls, text="Добавить файл", command=lambda: self._modal_add_files(list_frame)).pack(side=LEFT, padx=5)
-        Button(controls, text="Добавить папку", command=lambda: self._modal_add_folder(list_frame)).pack(side=LEFT, padx=5)
+        self._make_button(controls, text="Добавить файл", command=lambda: self._modal_add_files(list_frame), variant="secondary").pack(side=LEFT, padx=5)
+        self._make_button(controls, text="Добавить папку", command=lambda: self._modal_add_folder(list_frame), variant="primary").pack(side=LEFT, padx=5)
 
-        list_wrap = Frame(modal, bd=1, relief="sunken")
+        list_wrap = Frame(modal, bd=0, bg=PALETTE["card_bg"])
         list_wrap.pack(fill=BOTH, expand=True, padx=12, pady=8)
 
-        canvas_holder = Frame(list_wrap)
+        canvas_holder = Frame(list_wrap, bg=PALETTE["card_bg"])
         canvas_holder.pack(fill=BOTH, expand=True)
         scrollbar = Scrollbar(canvas_holder)
         scrollbar.pack(side="right", fill=Y)
-        list_frame = Frame(canvas_holder)
+        list_frame = Frame(canvas_holder, bg=PALETTE["card_bg"])
         list_frame.pack(fill=BOTH, expand=True)
 
-        Button(modal, text="ГОТОВО", command=lambda: self._close_add_docs_modal(modal), width=20).pack(pady=12)
+        self._make_button(modal, text="ГОТОВО", command=lambda: self._close_add_docs_modal(modal), width=20, variant="success").pack(pady=12)
         self._refresh_modal_file_list(list_frame)
 
     def _modal_add_files(self, list_frame: Frame) -> None:
@@ -275,10 +374,10 @@ class ContextSearchApp:
         for child in list_frame.winfo_children():
             child.destroy()
         for path in self._selected_paths:
-            row = Frame(list_frame)
+            row = Frame(list_frame, bg=PALETTE["card_bg"])
             row.pack(fill=X, padx=6, pady=4)
-            Label(row, text=path.name, anchor="w").pack(side=LEFT, fill=X, expand=True)
-            Button(row, text="❌", command=lambda p=path: self._remove_selected_path(p, list_frame)).pack(side=LEFT)
+            Label(row, text=path.name, anchor="w", bg=PALETTE["card_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(side=LEFT, fill=X, expand=True)
+            self._make_button(row, text="❌", command=lambda p=path: self._remove_selected_path(p, list_frame), variant="danger", width=3).pack(side=LEFT)
 
     def _remove_selected_path(self, path: Path, list_frame: Frame) -> None:
         self._selected_paths = [item for item in self._selected_paths if item != path]
@@ -347,29 +446,40 @@ class ContextSearchApp:
         modal.transient(self.root)
         modal.grab_set()
         modal.geometry("980x620")
+        modal.configure(bg=PALETTE["modal_bg"])
 
-        Button(modal, text="✕", command=modal.destroy).pack(anchor="ne", padx=6, pady=6)
-        Label(modal, text="Итоги поиска", font=("Arial", 18, "bold")).pack(pady=4)
+        self._make_button(modal, text="✕", command=modal.destroy, variant="danger", width=3).pack(anchor="ne", padx=6, pady=6)
+        Label(modal, text="Итоги поиска", font=FONTS["title"], bg=PALETTE["modal_bg"], fg=PALETTE["text"]).pack(pady=4)
 
-        listbox = Listbox(modal, width=130, height=20)
+        listbox = Listbox(
+            modal,
+            width=130,
+            height=20,
+            bg=PALETTE["list_bg"],
+            fg=PALETTE["text"],
+            selectbackground=PALETTE["primary"],
+            relief="flat",
+            font=FONTS["body"],
+        )
         listbox.pack(fill=BOTH, expand=True, padx=10, pady=8)
 
-        actions = Frame(modal)
+        actions = Frame(modal, bg=PALETTE["modal_bg"])
         actions.pack(fill=X, padx=10, pady=6)
 
-        Button(actions, text="Показать все", command=lambda: self._fill_results_list(listbox, "documents", show_all=True)).pack(
+        self._make_button(actions, text="Показать все", command=lambda: self._fill_results_list(listbox, "documents", show_all=True)).pack(
             side=LEFT, padx=4
         )
-        Button(
+        self._make_button(
             actions,
             text="Показать результаты по фрагментам",
             command=lambda: self._fill_results_list(listbox, "chunks", show_all=True),
+            variant="primary",
         ).pack(side=LEFT, padx=4)
-        Button(actions, text="Открыть выбранный", command=lambda: self._open_selected_result_from_listbox(listbox)).pack(
+        self._make_button(actions, text="Открыть выбранный", command=lambda: self._open_selected_result_from_listbox(listbox), variant="success").pack(
             side=LEFT, padx=4
         )
 
-        Button(actions, text="См. фрагменты документа", command=lambda: self._show_doc_chunks_from_listbox(listbox)).pack(
+        self._make_button(actions, text="См. фрагменты документа", command=lambda: self._show_doc_chunks_from_listbox(listbox), variant="ghost").pack(
             side=LEFT, padx=4
         )
 
@@ -483,25 +593,26 @@ class ContextSearchApp:
         modal.transient(self.root)
         modal.grab_set()
         modal.geometry("560x640")
+        modal.configure(bg=PALETTE["modal_bg"])
 
-        Button(modal, text="✕", command=modal.destroy).pack(anchor="ne", padx=6, pady=6)
-        Label(modal, text="Выбор конфигурации", font=("Arial", 16, "bold")).pack(pady=4)
+        self._make_button(modal, text="✕", command=modal.destroy, variant="danger", width=3).pack(anchor="ne", padx=6, pady=6)
+        Label(modal, text="Выбор конфигурации", font=FONTS["subtitle"], bg=PALETTE["modal_bg"], fg=PALETTE["text"]).pack(pady=4)
 
         model_var = StringVar(value=self.embedder_label_var.get())
-        Label(modal, text="Модель").pack(anchor="w", padx=10)
+        Label(modal, text="Модель", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(anchor="w", padx=10)
         dropdown = Combobox(modal, textvariable=model_var, values=[name for name, _ in MODEL_CHOICES], width=20)
         dropdown.pack(anchor="w", padx=10, pady=4)
         dropdown.configure(state="readonly")
 
-        Label(modal, text="Тип хранилища").pack(anchor="w", padx=10, pady=(8, 0))
+        Label(modal, text="Тип хранилища", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(anchor="w", padx=10, pady=(8, 0))
         storage_var = StringVar(value=self.storage_var.get())
-        Radiobutton(modal, text="HNSW", variable=storage_var, value="hnsw").pack(anchor="w", padx=14)
-        Radiobutton(modal, text="In-memory", variable=storage_var, value="in_memory").pack(anchor="w", padx=14)
+        Radiobutton(modal, text="HNSW", variable=storage_var, value="hnsw", bg=PALETTE["modal_bg"], fg=PALETTE["text"], selectcolor=PALETTE["card_bg"]).pack(anchor="w", padx=14)
+        Radiobutton(modal, text="In-memory", variable=storage_var, value="in_memory", bg=PALETTE["modal_bg"], fg=PALETTE["text"], selectcolor=PALETTE["card_bg"]).pack(anchor="w", padx=14)
 
-        meta_label = Label(modal, text="")
+        meta_label = Label(modal, text="", bg=PALETTE["modal_bg"], fg=PALETTE["muted_text"], font=FONTS["small"], justify="left")
         meta_label.pack(anchor="w", padx=10, pady=8)
 
-        docs_list = Listbox(modal, width=70, height=16)
+        docs_list = Listbox(modal, width=70, height=16, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
         docs_list.pack(fill=BOTH, expand=True, padx=10, pady=8)
 
         def refresh_preview(*_args) -> None:
@@ -548,7 +659,7 @@ class ContextSearchApp:
                 self.refresh_documents()
                 modal.destroy()
 
-            Button(modal, text="Применить", command=apply_config).pack(pady=8)
+            self._make_button(modal, text="Применить", command=apply_config, variant="primary").pack(pady=8)
 
     def _open_progress(self, text: str) -> Toplevel:
         modal = Toplevel(self.root)
@@ -556,7 +667,8 @@ class ContextSearchApp:
         modal.transient(self.root)
         modal.grab_set()
         modal.geometry("320x120")
-        Label(modal, text=text).pack(pady=10)
+        modal.configure(bg=PALETTE["modal_bg"])
+        Label(modal, text=text, bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(pady=10)
         bar = Progressbar(modal, mode="indeterminate")
         bar.pack(fill=X, padx=14, pady=6)
         bar.start(10)
