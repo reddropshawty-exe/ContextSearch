@@ -124,14 +124,23 @@ class ContextSearchApp:
             "secondary": (PALETTE["secondary"], PALETTE["secondary_text"]),
         }
         bg, fg = color_map.get(variant, color_map["secondary"])
+        active_bg = bg
+        active_fg = fg
+
+        # На macOS системная тема может игнорировать фон кнопки, поэтому
+        # делаем текст тёмным, чтобы избежать "белый на белом".
+        if sys.platform == "darwin":
+            fg = PALETTE["input_text"]
+            active_fg = PALETTE["input_text"]
+
         return Button(
             parent,
             text=text,
             command=command,
             bg=bg,
             fg=fg,
-            activebackground=bg,
-            activeforeground=fg,
+            activebackground=active_bg,
+            activeforeground=active_fg,
             relief="flat",
             bd=0,
             padx=10,
