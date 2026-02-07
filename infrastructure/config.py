@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal
 
 from domain.entities import EmbeddingSpec
@@ -83,6 +84,7 @@ class ContainerConfig:
     rewriter: RewriterName = "simple"
     embedding_store: EmbeddingStoreName = "hnsw"
     profile: ProfileName = "stable"
+    data_root: str = "data"
     device: str = "cpu"
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
@@ -119,14 +121,15 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
     splitter = FixedWindowSplitter()
     embedders = _build_embedders(cfg)
     embedder = embedders[cfg.embedder]
-    document_repository = SqliteDocumentRepository(db_path="contextsearch.db")
-    chunk_repository = SqliteChunkRepository(db_path="contextsearch.db")
-    embedding_spec_repository = SqliteEmbeddingSpecRepository(db_path="contextsearch.db")
-    embedding_record_repository = SqliteEmbeddingRecordRepository(db_path="contextsearch.db")
+    db_path, index_root = _collection_paths(cfg)
+    document_repository = SqliteDocumentRepository(db_path=db_path)
+    chunk_repository = SqliteChunkRepository(db_path=db_path)
+    embedding_spec_repository = SqliteEmbeddingSpecRepository(db_path=db_path)
+    embedding_record_repository = SqliteEmbeddingRecordRepository(db_path=db_path)
     embedding_specs = _build_embedding_specs(cfg, embedders)
     for spec in embedding_specs:
         embedding_spec_repository.upsert(spec)
-    embedding_store = _build_embedding_store(cfg, embedding_record_repository)
+    embedding_store = _build_embedding_store(cfg, embedding_record_repository, index_root=index_root)
     query_rewriter = _build_rewriter(cfg)
     reranker = SimpleReranker()
 
@@ -190,10 +193,12 @@ def _sentence_model_config_for(model_name: EmbedderName, config: ContainerConfig
 def _build_embedding_store(
     config: ContainerConfig,
     record_repository: EmbeddingRecordRepository,
+    *,
+    index_root: Path,
 ) -> EmbeddingStore:
     if config.embedding_store == "in_memory":
         return InMemoryEmbeddingStore(record_repository=record_repository)
-    return HnswEmbeddingStore(index_root="indexes", record_repository=record_repository)
+    return HnswEmbeddingStore(index_root=index_root, record_repository=record_repository)
 
 
 def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
@@ -270,6 +275,18 @@ def _ensure_primary_embedder(
     if embedder in embedder_models:
         return embedder_models
     return (embedder, *embedder_models)
+
+
+def _collection_paths(config: ContainerConfig) -> tuple[Path, Path]:
+    slug = _collection_slug(config.embedder, config.embedding_store)
+    root = Path(config.data_root) / slug
+    root.mkdir(parents=True, exist_ok=True)
+    return root / "contextsearch.db", root / "indexes"
+
+
+def _collection_slug(embedder: EmbedderName, store: EmbeddingStoreName) -> str:
+    safe_embedder = str(embedder).replace("/", "-")
+    return f"{safe_embedder}-{store}"
 
 
 __all__ = ["Container", "ContainerConfig", "build_default_container"]

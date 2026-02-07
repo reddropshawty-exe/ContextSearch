@@ -67,6 +67,8 @@ MODEL_CHOICES: list[tuple[str, str]] = [
     ("Gemma", "embedding-gemma"),
 ]
 
+DATA_ROOT = "data"
+
 
 class ContextSearchApp:
     def __init__(self) -> None:
@@ -303,7 +305,9 @@ class ContextSearchApp:
 
     @staticmethod
     def _default_storage() -> str:
-        indexes_dir = Path("indexes")
+        safe_embedder = "all-minilm".replace("/", "-")
+        slug = f"{safe_embedder}-hnsw"
+        indexes_dir = Path(DATA_ROOT) / slug / "indexes"
         if indexes_dir.exists() and any(indexes_dir.glob("*.bin")):
             return "hnsw"
         return "in_memory"
@@ -313,6 +317,7 @@ class ContextSearchApp:
             embedder=self.embedder_key_var.get(),
             rewriter="llm" if self.llm_rewrite_var.get() else "simple",
             embedding_store=self.storage_var.get(),
+            data_root=DATA_ROOT,
         )
         cache_key = (config.embedder, config.embedding_store, config.rewriter)
         if self._container_cache and self._container_cache[0] == cache_key:
@@ -658,6 +663,7 @@ class ContextSearchApp:
                 embedder=embedder_key,
                 embedding_store=storage_var.get(),
                 rewriter="llm" if self.llm_rewrite_var.get() else "simple",
+                data_root=DATA_ROOT,
             )
             container = build_default_container(config)
             spec = next((s for s in container.embedding_specs if s.level == "document" and s.model_name == embedder_key), None)
@@ -695,7 +701,7 @@ class ContextSearchApp:
                 self.refresh_documents()
                 modal.destroy()
 
-            self._make_button(modal, text="Применить", command=apply_config, variant="primary").pack(pady=8)
+            self._make_button(modal, text="Сохранить", command=apply_config, variant="primary").pack(pady=8)
 
     def _open_progress(self, text: str) -> Toplevel:
         modal = Toplevel(self.root)
