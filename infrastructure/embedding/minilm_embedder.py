@@ -1,4 +1,4 @@
-"""Lightweight embedder that simulates MiniLM embeddings."""
+"""Лёгкий эмбеддер, имитирующий MiniLM-векторы."""
 from __future__ import annotations
 
 import hashlib
@@ -10,14 +10,23 @@ from domain.interfaces import Embedder
 
 
 class MiniLMEmbedder(Embedder):
-    """Deterministic hash-based embedder useful for demos/tests."""
+    """Детерминированный хэш-эмбеддер для демо и тестов."""
 
     def __init__(self, dimension: int = 16) -> None:
-        self.dimension = dimension
+        self._dimension = dimension
+        self._model_id = f"hash-minilm-{dimension}"
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
 
     def _hash(self, text: str) -> list[float]:
         digest = hashlib.sha256(text.encode("utf-8")).digest()
-        vector = [digest[i % len(digest)] / 255.0 for i in range(self.dimension)]
+        vector = [digest[i % len(digest)] / 255.0 for i in range(self._dimension)]
         norm = math.sqrt(sum(value * value for value in vector)) or 1.0
         return [value / norm for value in vector]
 
