@@ -32,6 +32,7 @@ def search(
     reranker: Reranker,
     top_k: int = 5,
     use_bm25: bool = True,
+    ranking_mode: str = "vector",
 ) -> list[RetrievalResult]:
     """Искать документы, релевантные заданному запросу."""
 
@@ -72,10 +73,13 @@ def search(
                 doc_vector_score = candidate_docs.get(chunk.document_id)
                 bm25_score = bm25_scores.get(chunk.document_id)
                 doc_rrf_score = doc_rrf_scores.get(chunk.document_id, 0.0)
+                ranking_score = score
+                if ranking_mode == "bm25":
+                    ranking_score = float(bm25_score or 0.0)
                 aggregated_results.append(
                     RetrievalResult(
                         document_id=chunk.document_id,
-                        score=score + doc_rrf_score,
+                        score=ranking_score,
                         chunk=chunk,
                         chunk_text_preview=chunk.text[:200],
                         metadata={

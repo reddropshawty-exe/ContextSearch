@@ -83,7 +83,8 @@ class ContextSearchApp:
         self.llm_rewrite_var = BooleanVar(value=False)
         self.embedder_label_var = StringVar(value="MiniLM")
         self.embedder_key_var = StringVar(value="all-minilm")
-        self.storage_var = StringVar(value="in_memory")
+        self.storage_var = StringVar(value=self._default_storage())
+        self.rank_mode_var = StringVar(value="vector")
 
         self.status_var = StringVar(value="Готово")
         self.selected_docs_var = StringVar(value="0 документов выбрано")
@@ -194,6 +195,18 @@ class ContextSearchApp:
             variant="ghost",
         ).pack(anchor="w", padx=16, pady=3)
 
+        rank_row = Frame(zone, bg=PALETTE["panel_bg"])
+        rank_row.pack(anchor="w", padx=16, pady=6)
+        Label(rank_row, text="Ранжирование", bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=(0, 8))
+        rank_select = Combobox(
+            rank_row,
+            textvariable=self.rank_mode_var,
+            values=["vector", "bm25"],
+            width=12,
+            state="readonly",
+        )
+        rank_select.pack(side=LEFT)
+
         self.search_btn = self._make_button(zone, text="ПОИСК", command=self.search_query, state="disabled", width=28, variant="primary")
         self.search_btn.pack(pady=12)
 
@@ -281,6 +294,13 @@ class ContextSearchApp:
             self.search_btn.configure(state="normal")
         else:
             self.search_btn.configure(state="disabled")
+
+    @staticmethod
+    def _default_storage() -> str:
+        indexes_dir = Path("indexes")
+        if indexes_dir.exists() and any(indexes_dir.glob("*.bin")):
+            return "hnsw"
+        return "in_memory"
 
     def build_container(self):
         config = ContainerConfig(
@@ -442,7 +462,8 @@ class ContextSearchApp:
                 embedding_specs=container.embedding_specs,
                 query_rewriter=container.query_rewriter,
                 reranker=container.reranker,
-                use_bm25=self.bm25_var.get(),
+                use_bm25=self.bm25_var.get() or self.rank_mode_var.get() == "bm25",
+                ranking_mode=self.rank_mode_var.get(),
             )
         finally:
             progress.destroy()
