@@ -63,6 +63,21 @@ def search(
                 logger.debug("Сравнение документа: doc_id=%s, ann_id=%s, score=%.4f", doc_id, ann_id, score)
                 candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
 
+    doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
+    chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
+    candidate_docs: dict[str, float] = {}
+    bm25_scores = _bm25_document_scores(query_text, document_repository) if use_bm25 else {}
+
+    for spec in doc_specs:
+        embedder = get_embedder_for_spec(spec, embedders)
+        for rewritten in expanded_queries:
+            query_embedding = embedder.embed_query(rewritten)
+            ann_results = embedding_store.search(spec, query_embedding, top_k=top_k)
+            ann_ids = [ann_id for ann_id, _ in ann_results]
+            object_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
+            for (ann_id, score), doc_id in zip(ann_results, object_ids):
+                candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
+
     aggregated_results: list[RetrievalResult] = []
     doc_rrf_scores = _rrf_scores(
         _ranked_ids(candidate_docs),
