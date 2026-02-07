@@ -361,6 +361,83 @@ def _collection_paths(config: ContainerConfig) -> tuple[Path, Path]:
     slug = _collection_slug(config.embedder, config.embedding_store)
     root = Path(config.data_root) / slug
     root.mkdir(parents=True, exist_ok=True)
+    db_path = root / "contextsearch.db"
+    index_root = root / "indexes"
+    _maybe_migrate_legacy_collection(db_path, index_root)
+    return db_path, index_root
+
+
+def _collection_slug(embedder: EmbedderName, store: EmbeddingStoreName) -> str:
+    safe_embedder = str(embedder).replace("/", "-")
+    return f"{safe_embedder}-{store}"
+
+
+def _maybe_migrate_legacy_collection(db_path: Path, index_root: Path) -> None:
+    legacy_db = Path("contextsearch.db")
+    legacy_index = Path("indexes")
+    if db_path.exists() or index_root.exists():
+        return
+    if not legacy_db.exists() and not legacy_index.exists():
+        return
+    logger.info(
+        "Найдено устаревшее хранилище, переносим данные в %s",
+        db_path.parent,
+    )
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if legacy_db.exists():
+        shutil.move(str(legacy_db), str(db_path))
+    if legacy_index.exists():
+        shutil.move(str(legacy_index), str(index_root))
+
+
+def _build_embedding_specs(
+    config: ContainerConfig,
+    embedders: dict[EmbedderName, Embedder],
+) -> list[EmbeddingSpec]:
+    specs: list[EmbeddingSpec] = []
+    metric = "cosine"
+    for model_name in config.embedder_models:
+        embedder = embedders[model_name]
+        dimension = embedder.dimension
+        base_id = f"{model_name}-{dimension}"
+        specs.append(
+            EmbeddingSpec(
+                id=f"{base_id}-document",
+                model_name=model_name,
+                dimension=dimension,
+                metric=metric,
+                normalize=True,
+                level="document",
+                params={"M": 16, "ef_construction": 200, "ef_search": 50},
+            )
+        )
+        specs.append(
+            EmbeddingSpec(
+                id=f"{base_id}-chunk",
+                model_name=model_name,
+                dimension=dimension,
+                metric=metric,
+                normalize=True,
+                level="chunk",
+                params={"M": 16, "ef_construction": 200, "ef_search": 50},
+            )
+        )
+    return specs
+
+
+def _ensure_primary_embedder(
+    embedder_models: tuple[EmbedderName, ...],
+    embedder: EmbedderName,
+) -> tuple[EmbedderName, ...]:
+    if embedder in embedder_models:
+        return embedder_models
+    return (embedder, *embedder_models)
+
+
+def _collection_paths(config: ContainerConfig) -> tuple[Path, Path]:
+    slug = _collection_slug(config.embedder, config.embedding_store)
+    root = Path(config.data_root) / slug
+    root.mkdir(parents=True, exist_ok=True)
     return root / "contextsearch.db", root / "indexes"
 
 

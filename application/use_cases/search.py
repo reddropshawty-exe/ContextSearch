@@ -18,6 +18,7 @@ from domain.interfaces import (
 )
 
 from application.use_cases.embedding_utils import get_embedder_for_spec
+from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,16 @@ def search(
     if bm25_scores:
         _log_bm25_scores(bm25_scores)
 
+    _ensure_in_memory_index(
+        embedding_store,
+        embedders,
+        embedding_record_repository,
+        document_repository,
+        chunk_repository,
+        doc_specs,
+        chunk_specs,
+    )
+
     for spec in doc_specs:
         embedder = get_embedder_for_spec(spec, embedders)
         for rewritten in expanded_queries:
@@ -61,21 +72,6 @@ def search(
             logger.info("Документный поиск: spec=%s, запрос='%s', ann_ids=%s", spec.id, rewritten.text, ann_ids)
             for (ann_id, score), doc_id in zip(ann_results, object_ids):
                 logger.debug("Сравнение документа: doc_id=%s, ann_id=%s, score=%.4f", doc_id, ann_id, score)
-                candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
-
-    doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
-    chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
-    candidate_docs: dict[str, float] = {}
-    bm25_scores = _bm25_document_scores(query_text, document_repository) if use_bm25 else {}
-
-    for spec in doc_specs:
-        embedder = get_embedder_for_spec(spec, embedders)
-        for rewritten in expanded_queries:
-            query_embedding = embedder.embed_query(rewritten)
-            ann_results = embedding_store.search(spec, query_embedding, top_k=top_k)
-            ann_ids = [ann_id for ann_id, _ in ann_results]
-            object_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
-            for (ann_id, score), doc_id in zip(ann_results, object_ids):
                 candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
 
     aggregated_results: list[RetrievalResult] = []
@@ -165,6 +161,63 @@ def _bm25_document_scores(query_text: str, document_repository: DocumentReposito
 def _log_bm25_scores(scores: dict[str, float]) -> None:
     for doc_id, score in scores.items():
         logger.debug("BM25 сравнение: doc_id=%s, score=%.4f", doc_id, score)
+
+
+def _ensure_in_memory_index(
+    embedding_store: EmbeddingStore,
+    embedders: dict[str, Embedder],
+    embedding_record_repository: EmbeddingRecordRepository,
+    document_repository: DocumentRepository,
+    chunk_repository: ChunkRepository,
+    doc_specs: list[EmbeddingSpec],
+    chunk_specs: list[EmbeddingSpec],
+) -> None:
+    if not isinstance(embedding_store, InMemoryEmbeddingStore):
+        return
+
+    for spec in doc_specs:
+        if embedding_store.has_entries(spec.id):
+            continue
+        doc_ids = embedding_record_repository.list_object_ids(spec.id, "document")
+        if doc_ids:
+            documents = [document_repository.get(doc_id) for doc_id in doc_ids]
+        else:
+            documents = document_repository.list()
+            if documents:
+                logger.warning(
+                    "Не найдены записи embedding_records для spec=%s, восстанавливаем из документов.",
+                    spec.id,
+                )
+        texts = [doc.content for doc in documents if doc and doc.content]
+        if not texts:
+            continue
+        embedder = get_embedder_for_spec(spec, embedders)
+        logger.info("Восстановление in-memory индекса документов: spec=%s, count=%d", spec.id, len(texts))
+        embeddings = embedder.embed_texts(texts)
+        valid_ids = [doc.id for doc in documents if doc and doc.content]
+        embedding_store.add(spec, "document", valid_ids, embeddings)
+
+    for spec in chunk_specs:
+        if embedding_store.has_entries(spec.id):
+            continue
+        chunk_ids = embedding_record_repository.list_object_ids(spec.id, "chunk")
+        if chunk_ids:
+            chunks = [chunk_repository.get(chunk_id) for chunk_id in chunk_ids]
+        else:
+            chunks = chunk_repository.list()
+            if chunks:
+                logger.warning(
+                    "Не найдены записи embedding_records для spec=%s (chunk), восстанавливаем из чанков.",
+                    spec.id,
+                )
+        texts = [chunk.text for chunk in chunks if chunk and chunk.text]
+        if not texts:
+            continue
+        embedder = get_embedder_for_spec(spec, embedders)
+        logger.info("Восстановление in-memory индекса чанков: spec=%s, count=%d", spec.id, len(texts))
+        embeddings = embedder.embed_texts(texts)
+        valid_ids = [chunk.id for chunk in chunks if chunk and chunk.text]
+        embedding_store.add(spec, "chunk", valid_ids, embeddings)
 
 
 def _tokenize(text: str) -> list[str]:

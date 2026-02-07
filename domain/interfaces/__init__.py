@@ -92,6 +92,10 @@ class ChunkRepository(ABC):
         """Сохранить чанк и вернуть его идентификатор."""
 
     @abstractmethod
+    def list(self) -> list[Chunk]:
+        """Вернуть список всех чанков."""
+
+    @abstractmethod
     def get(self, chunk_id: str) -> Chunk | None:
         """Получить чанк по идентификатору."""
 

@@ -245,7 +245,18 @@ class ContextSearchApp:
         btns = Frame(card, bg=PALETTE["card_bg"])
         btns.pack(fill=X, padx=8, pady=8)
         self._make_button(btns, text="Показать", command=lambda: self.open_config_modal(mode="view")).pack(fill=X, pady=3)
-        self._make_button(btns, text="Сменить конфиг", command=lambda: self.open_config_modal(mode="change"), variant="primary").pack(fill=X, pady=3)
+
+        actions = Frame(panel, bg=PALETTE["panel_bg"])
+        actions.pack(fill=X, padx=12, pady=(4, 8))
+        Label(actions, text="Смена конфигурации", font=FONTS["small"], bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"]).pack(
+            anchor="w"
+        )
+        self._make_button(
+            actions,
+            text="Сменить конфиг",
+            command=self.open_change_config,
+            variant="primary",
+        ).pack(fill=X, pady=6)
 
     def _build_bottom_zone(self, parent: Frame) -> None:
         zone = Frame(parent, bd=0, bg=PALETTE["panel_bg"], padx=10, pady=10)
@@ -690,18 +701,24 @@ class ContextSearchApp:
         storage_var.trace_add("write", refresh_preview)
         refresh_preview()
 
-        if mode == "change":
-            def apply_config() -> None:
-                name = model_var.get()
-                key = next((k for n, k in MODEL_CHOICES if n == name), self.embedder_key_var.get())
-                self.embedder_label_var.set(name)
-                self.embedder_key_var.set(key)
-                self.storage_var.set(storage_var.get())
-                self._container_cache = None
-                self.refresh_documents()
-                modal.destroy()
+        def apply_config() -> None:
+            name = model_var.get()
+            key = next((k for n, k in MODEL_CHOICES if n == name), self.embedder_key_var.get())
+            self.embedder_label_var.set(name)
+            self.embedder_key_var.set(key)
+            self.storage_var.set(storage_var.get())
+            self._container_cache = None
+            self.refresh_documents()
+            modal.destroy()
 
-            self._make_button(modal, text="Сохранить", command=apply_config, variant="primary").pack(pady=8)
+        save_button = self._make_button(modal, text="Сохранить", command=apply_config, variant="primary")
+        if mode == "view":
+            dropdown.configure(state="disabled")
+            save_button.configure(state="disabled")
+        save_button.pack(pady=8)
+
+    def open_change_config(self) -> None:
+        self.open_config_modal(mode="change")
 
     def _open_progress(self, text: str) -> Toplevel:
         modal = Toplevel(self.root)

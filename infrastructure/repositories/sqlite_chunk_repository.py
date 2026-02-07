@@ -68,6 +68,24 @@ class SqliteChunkRepository(ChunkRepository):
             )
             return chunk.id
 
+    def list(self) -> list[Chunk]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT chunk_id, document_id, text, start, end, text_hash, metadata FROM chunks"
+            ).fetchall()
+        return [
+            Chunk(
+                id=row[0],
+                document_id=row[1],
+                text=row[2],
+                start=row[3],
+                end=row[4],
+                text_hash=row[5],
+                metadata=json.loads(row[6]),
+            )
+            for row in rows
+        ]
+
     def get(self, chunk_id: str) -> Chunk | None:
         with self._connect() as conn:
             row = conn.execute(

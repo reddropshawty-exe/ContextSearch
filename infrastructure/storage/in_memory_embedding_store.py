@@ -48,6 +48,9 @@ class InMemoryEmbeddingStore(EmbeddingStore):
         sorted_results = sorted(scored, key=lambda item: item[0], reverse=True)
         return [(ann_id, score) for score, ann_id in sorted_results]
 
+    def has_entries(self, spec_id: str) -> bool:
+        return bool(self._entries.get(spec_id))
+
     @staticmethod
     def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
         numerator = sum(x * y for x, y in zip(a, b))
