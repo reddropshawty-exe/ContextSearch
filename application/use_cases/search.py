@@ -1,6 +1,7 @@
 """Сценарий использования для семантического поиска по индексированному содержимому."""
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 from rank_bm25 import BM25Okapi
@@ -17,6 +18,8 @@ from domain.interfaces import (
 )
 
 from application.use_cases.embedding_utils import get_embedder_for_spec
+
+logger = logging.getLogger(__name__)
 
 
 def search(
@@ -36,8 +39,29 @@ def search(
 ) -> list[RetrievalResult]:
     """Искать документы, релевантные заданному запросу."""
 
+    logger.info("Поиск: запрос='%s', ранжирование=%s, bm25=%s", query_text, ranking_mode, use_bm25)
     query = Query(text=query_text)
     expanded_queries: Iterable[Query] = query_rewriter.rewrite(query) or [query]
+    logger.info("Переписанные запросы: %s", [q.text for q in expanded_queries])
+
+    doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
+    chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
+    candidate_docs: dict[str, float] = {}
+    bm25_scores = _bm25_document_scores(query_text, document_repository) if use_bm25 else {}
+    if bm25_scores:
+        _log_bm25_scores(bm25_scores)
+
+    for spec in doc_specs:
+        embedder = get_embedder_for_spec(spec, embedders)
+        for rewritten in expanded_queries:
+            query_embedding = embedder.embed_query(rewritten)
+            ann_results = embedding_store.search(spec, query_embedding, top_k=top_k)
+            ann_ids = [ann_id for ann_id, _ in ann_results]
+            object_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
+            logger.info("Документный поиск: spec=%s, запрос='%s', ann_ids=%s", spec.id, rewritten.text, ann_ids)
+            for (ann_id, score), doc_id in zip(ann_results, object_ids):
+                logger.debug("Сравнение документа: doc_id=%s, ann_id=%s, score=%.4f", doc_id, ann_id, score)
+                candidate_docs[doc_id] = max(candidate_docs.get(doc_id, 0.0), score)
 
     doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
     chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
@@ -59,6 +83,8 @@ def search(
         _ranked_ids(candidate_docs),
         _ranked_ids(bm25_scores),
     )
+    if doc_rrf_scores:
+        logger.debug("RRF оценки документов: %s", doc_rrf_scores)
     for rewritten in expanded_queries:
         for spec in chunk_specs:
             embedder = get_embedder_for_spec(spec, embedders)
@@ -66,6 +92,7 @@ def search(
             ann_results = embedding_store.search(spec, query_embedding, top_k=top_k * 2)
             ann_ids = [ann_id for ann_id, _ in ann_results]
             chunk_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
+            logger.info("Чанковый поиск: spec=%s, запрос='%s', ann_ids=%s", spec.id, rewritten.text, ann_ids)
             for (ann_id, score), chunk_id in zip(ann_results, chunk_ids):
                 chunk = chunk_repository.get(chunk_id)
                 if chunk is None:
@@ -76,6 +103,15 @@ def search(
                 ranking_score = score
                 if ranking_mode == "bm25":
                     ranking_score = float(bm25_score or 0.0)
+                logger.debug(
+                    "Сравнение чанка: chunk_id=%s, doc_id=%s, ann_id=%s, chunk_score=%.4f, doc_score=%s, bm25=%s",
+                    chunk_id,
+                    chunk.document_id,
+                    ann_id,
+                    score,
+                    doc_vector_score,
+                    bm25_score,
+                )
                 aggregated_results.append(
                     RetrievalResult(
                         document_id=chunk.document_id,
@@ -95,6 +131,7 @@ def search(
     for result in deduped:
         result.document = document_repository.get(result.document_id)
     reranked = reranker.rerank(query, deduped)
+    logger.info("Итог: результатов=%d", len(reranked))
     return reranked[:top_k]
 
 
@@ -123,6 +160,11 @@ def _bm25_document_scores(query_text: str, document_repository: DocumentReposito
         return {}
     scores = bm25.get_scores(query_tokens)
     return {doc.id: float(score) for doc, score in zip(documents, scores)}
+
+
+def _log_bm25_scores(scores: dict[str, float]) -> None:
+    for doc_id, score in scores.items():
+        logger.debug("BM25 сравнение: doc_id=%s, score=%.4f", doc_id, score)
 
 
 def _tokenize(text: str) -> list[str]:
