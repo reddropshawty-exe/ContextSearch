@@ -186,14 +186,22 @@ class ContextSearchApp:
         self.query_entry.bind("<KeyRelease>", lambda _e: self._sync_search_button_state())
 
         Frame(zone, height=4, bg=PALETTE["panel_bg"]).pack()
-        self._make_button(zone, text="☐ BM25", command=self._toggle_bm25, width=30, variant="ghost").pack(anchor="w", padx=16, pady=3)
-        self._make_button(
+        self._bm25_btn = self._make_button(
+            zone,
+            text="☐ BM25",
+            command=self._toggle_bm25,
+            width=30,
+            variant="ghost",
+        )
+        self._bm25_btn.pack(anchor="w", padx=16, pady=3)
+        self._llm_btn = self._make_button(
             zone,
             text="☐ LLM улучшение запроса",
             command=self._toggle_llm,
             width=30,
             variant="ghost",
-        ).pack(anchor="w", padx=16, pady=3)
+        )
+        self._llm_btn.pack(anchor="w", padx=16, pady=3)
 
         rank_row = Frame(zone, bg=PALETTE["panel_bg"])
         rank_row.pack(anchor="w", padx=16, pady=6)
@@ -210,8 +218,6 @@ class ContextSearchApp:
         self.search_btn = self._make_button(zone, text="ПОИСК", command=self.search_query, state="disabled", width=28, variant="primary")
         self.search_btn.pack(pady=12)
 
-        self._bm25_btn = zone.winfo_children()[-3]
-        self._llm_btn = zone.winfo_children()[-2]
         self._update_toggle_labels()
 
     def _build_config_zone(self, parent: Frame) -> None:
