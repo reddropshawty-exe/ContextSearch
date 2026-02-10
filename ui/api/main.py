@@ -1,4 +1,4 @@
-"""FastAPI layer that exposes ingest/search operations."""
+"""Слой FastAPI, который предоставляет операции индексации и поиска."""
 from __future__ import annotations
 
 from fastapi import FastAPI, Query as FastAPIQuery
@@ -8,13 +8,16 @@ from application.use_cases.ingest_documents import ingest_documents
 from application.use_cases.search import search
 from domain.entities import Document
 from infrastructure.config import build_default_container
+from ui.logging_utils import setup_logging
 
-app = FastAPI(title="ContextSearch API")
+setup_logging()
+
+app = FastAPI(title="API ContextSearch")
 container = build_default_container()
 
 
 class DocumentPayload(BaseModel):
-    id: str
+    id: str | None = None
     content: str
 
 
@@ -38,9 +41,12 @@ def ingest_endpoint(payload: IngestRequest) -> IngestResponse:
         documents,
         extractor=container.extractor,
         splitter=container.splitter,
-        embedder=container.embedder,
+        embedders=container.embedders,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
+        chunk_repository=container.chunk_repository,
+        embedding_specs=container.embedding_specs,
+        bm25_index=container.bm25_index,
     )
     return IngestResponse(ingested=len(documents))
 
@@ -52,21 +58,27 @@ def documents_endpoint() -> list[DocumentPayload]:
 
 
 @app.get("/search", response_model=SearchResponse)
-def search_endpoint(q: str = FastAPIQuery(..., description="User query")) -> SearchResponse:
+def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пользователя")) -> SearchResponse:
     results = search(
         q,
-        embedder=container.embedder,
+        embedders=container.embedders,
         embedding_store=container.embedding_store,
         document_repository=container.document_repository,
+        chunk_repository=container.chunk_repository,
+        embedding_record_repository=container.embedding_record_repository,
+        embedding_specs=container.embedding_specs,
+        bm25_index=container.bm25_index,
         query_rewriter=container.query_rewriter,
         reranker=container.reranker,
     )
     serialized = [
         {
-            "chunk_id": result.chunk.id,
-            "document_id": result.chunk.document_id,
-            "score": result.score,
-            "text": result.chunk.text,
+            "chunk_id": result.chunk.id if result.chunk else None,
+            "document_id": result.document_id,
+            "chunk_score": result.metadata.get("chunk_score", result.score),
+            "document_score": result.metadata.get("document_vector_score"),
+            "bm25_score": result.metadata.get("bm25_score"),
+            "text": result.chunk.text if result.chunk else None,
         }
         for result in results
     ]
