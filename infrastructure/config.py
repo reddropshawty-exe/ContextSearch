@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -38,6 +38,9 @@ from infrastructure.repositories.sqlite_embedding_spec_repository import SqliteE
 from infrastructure.splitting.fixed_window_splitter import FixedWindowSplitter
 from infrastructure.storage.hnsw_embedding_store import HnswEmbeddingStore
 from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
+from infrastructure.storage.sqlite_embedding_store import SqliteEmbeddingStore
+
+from application.services.bm25_index import BM25Index
 from infrastructure.text_extraction.docx_extractor import DocxExtractor
 from infrastructure.text_extraction.html_extractor import HtmlExtractor
 from infrastructure.text_extraction.pdf_extractor import PdfExtractor
@@ -56,7 +59,7 @@ EmbedderName = Literal[
     "embedding-gemma",
 ]
 RewriterName = Literal["simple", "llm"]
-EmbeddingStoreName = Literal["in_memory", "hnsw"]
+EmbeddingStoreName = Literal["in_memory", "sqlite", "hnsw"]
 ProfileName = Literal["stable", "experimental"]
 
 
@@ -76,6 +79,7 @@ class Container:
     query_rewriter: QueryRewriter
     reranker: Reranker
     embedding_specs: list[EmbeddingSpec]
+    bm25_index: BM25Index = field(default_factory=BM25Index)
 
 
 @dataclass(slots=True)
@@ -85,7 +89,7 @@ class ContainerConfig:
     extractor: ExtractorName = "pdf"
     embedder: EmbedderName = "all-minilm"
     rewriter: RewriterName = "simple"
-    embedding_store: EmbeddingStoreName = "hnsw"
+    embedding_store: EmbeddingStoreName = "sqlite"
     profile: ProfileName = "stable"
     data_root: str = "data"
     device: str = "cpu"
@@ -132,7 +136,9 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
     embedding_specs = _build_embedding_specs(cfg, embedders)
     for spec in embedding_specs:
         embedding_spec_repository.upsert(spec)
-    embedding_store = _build_embedding_store(cfg, embedding_record_repository, index_root=index_root)
+    embedding_store = _build_embedding_store(cfg, embedding_record_repository, db_path=db_path, index_root=index_root)
+    bm25_index = BM25Index()
+    bm25_index.update_documents(document_repository.list())
     query_rewriter = _build_rewriter(cfg)
     reranker = SimpleReranker()
 
@@ -149,6 +155,7 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
         query_rewriter=query_rewriter,
         reranker=reranker,
         embedding_specs=embedding_specs,
+        bm25_index=bm25_index,
     )
 
 
@@ -197,10 +204,13 @@ def _build_embedding_store(
     config: ContainerConfig,
     record_repository: EmbeddingRecordRepository,
     *,
+    db_path: Path,
     index_root: Path,
 ) -> EmbeddingStore:
     if config.embedding_store == "in_memory":
         return InMemoryEmbeddingStore(record_repository=record_repository)
+    if config.embedding_store == "sqlite":
+        return SqliteEmbeddingStore(db_path=db_path, record_repository=record_repository)
     return HnswEmbeddingStore(index_root=index_root, record_repository=record_repository)
 
 
@@ -311,139 +321,6 @@ def _maybe_migrate_legacy_collection(db_path: Path, index_root: Path) -> None:
         shutil.move(str(legacy_db), str(db_path))
     if legacy_index.exists():
         shutil.move(str(legacy_index), str(index_root))
-
-
-def _build_embedding_specs(
-    config: ContainerConfig,
-    embedders: dict[EmbedderName, Embedder],
-) -> list[EmbeddingSpec]:
-    specs: list[EmbeddingSpec] = []
-    metric = "cosine"
-    for model_name in config.embedder_models:
-        embedder = embedders[model_name]
-        dimension = embedder.dimension
-        base_id = f"{model_name}-{dimension}"
-        specs.append(
-            EmbeddingSpec(
-                id=f"{base_id}-document",
-                model_name=model_name,
-                dimension=dimension,
-                metric=metric,
-                normalize=True,
-                level="document",
-                params={"M": 16, "ef_construction": 200, "ef_search": 50},
-            )
-        )
-        specs.append(
-            EmbeddingSpec(
-                id=f"{base_id}-chunk",
-                model_name=model_name,
-                dimension=dimension,
-                metric=metric,
-                normalize=True,
-                level="chunk",
-                params={"M": 16, "ef_construction": 200, "ef_search": 50},
-            )
-        )
-    return specs
-
-
-def _ensure_primary_embedder(
-    embedder_models: tuple[EmbedderName, ...],
-    embedder: EmbedderName,
-) -> tuple[EmbedderName, ...]:
-    if embedder in embedder_models:
-        return embedder_models
-    return (embedder, *embedder_models)
-
-
-def _collection_paths(config: ContainerConfig) -> tuple[Path, Path]:
-    slug = _collection_slug(config.embedder, config.embedding_store)
-    root = Path(config.data_root) / slug
-    root.mkdir(parents=True, exist_ok=True)
-    db_path = root / "contextsearch.db"
-    index_root = root / "indexes"
-    _maybe_migrate_legacy_collection(db_path, index_root)
-    return db_path, index_root
-
-
-def _collection_slug(embedder: EmbedderName, store: EmbeddingStoreName) -> str:
-    safe_embedder = str(embedder).replace("/", "-")
-    return f"{safe_embedder}-{store}"
-
-
-def _maybe_migrate_legacy_collection(db_path: Path, index_root: Path) -> None:
-    legacy_db = Path("contextsearch.db")
-    legacy_index = Path("indexes")
-    if db_path.exists() or index_root.exists():
-        return
-    if not legacy_db.exists() and not legacy_index.exists():
-        return
-    logger.info(
-        "Найдено устаревшее хранилище, переносим данные в %s",
-        db_path.parent,
-    )
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    if legacy_db.exists():
-        shutil.move(str(legacy_db), str(db_path))
-    if legacy_index.exists():
-        shutil.move(str(legacy_index), str(index_root))
-
-
-def _build_embedding_specs(
-    config: ContainerConfig,
-    embedders: dict[EmbedderName, Embedder],
-) -> list[EmbeddingSpec]:
-    specs: list[EmbeddingSpec] = []
-    metric = "cosine"
-    for model_name in config.embedder_models:
-        embedder = embedders[model_name]
-        dimension = embedder.dimension
-        base_id = f"{model_name}-{dimension}"
-        specs.append(
-            EmbeddingSpec(
-                id=f"{base_id}-document",
-                model_name=model_name,
-                dimension=dimension,
-                metric=metric,
-                normalize=True,
-                level="document",
-                params={"M": 16, "ef_construction": 200, "ef_search": 50},
-            )
-        )
-        specs.append(
-            EmbeddingSpec(
-                id=f"{base_id}-chunk",
-                model_name=model_name,
-                dimension=dimension,
-                metric=metric,
-                normalize=True,
-                level="chunk",
-                params={"M": 16, "ef_construction": 200, "ef_search": 50},
-            )
-        )
-    return specs
-
-
-def _ensure_primary_embedder(
-    embedder_models: tuple[EmbedderName, ...],
-    embedder: EmbedderName,
-) -> tuple[EmbedderName, ...]:
-    if embedder in embedder_models:
-        return embedder_models
-    return (embedder, *embedder_models)
-
-
-def _collection_paths(config: ContainerConfig) -> tuple[Path, Path]:
-    slug = _collection_slug(config.embedder, config.embedding_store)
-    root = Path(config.data_root) / slug
-    root.mkdir(parents=True, exist_ok=True)
-    return root / "contextsearch.db", root / "indexes"
-
-
-def _collection_slug(embedder: EmbedderName, store: EmbeddingStoreName) -> str:
-    safe_embedder = str(embedder).replace("/", "-")
-    return f"{safe_embedder}-{store}"
 
 
 __all__ = ["Container", "ContainerConfig", "build_default_container"]

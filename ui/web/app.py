@@ -19,9 +19,9 @@ def get_container(safe_mode: bool, embedding_store: str):
 if "documents" not in st.session_state:
     st.session_state["documents"] = []
 safe_mode = st.toggle("Безопасный режим (без HNSW/torch)", value=False)
-embedding_store = st.selectbox("Хранилище эмбеддингов", ["in_memory", "hnsw"], index=0)
+embedding_store = st.selectbox("Хранилище эмбеддингов", ["sqlite", "in_memory", "hnsw"], index=0)
 container = get_container(safe_mode, embedding_store)
-store_label = "in_memory" if embedding_store == "in_memory" else "hnsw"
+store_label = {"sqlite": "sqlite", "in_memory": "in_memory", "hnsw": "hnsw"}.get(embedding_store, embedding_store)
 st.set_page_config(page_title="ContextSearch Демо")
 st.title("ContextSearch Демо")
 st.caption(
@@ -44,6 +44,7 @@ if ingest_submit:
         document_repository=container.document_repository,
         chunk_repository=container.chunk_repository,
         embedding_specs=container.embedding_specs,
+        bm25_index=container.bm25_index,
     )
     st.success("Документ проиндексирован")
 
@@ -58,6 +59,7 @@ if st.button("Найти"):
         chunk_repository=container.chunk_repository,
         embedding_record_repository=container.embedding_record_repository,
         embedding_specs=container.embedding_specs,
+        bm25_index=container.bm25_index,
         query_rewriter=container.query_rewriter,
         reranker=container.reranker,
     )

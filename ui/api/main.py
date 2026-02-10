@@ -46,6 +46,7 @@ def ingest_endpoint(payload: IngestRequest) -> IngestResponse:
         document_repository=container.document_repository,
         chunk_repository=container.chunk_repository,
         embedding_specs=container.embedding_specs,
+        bm25_index=container.bm25_index,
     )
     return IngestResponse(ingested=len(documents))
 
@@ -66,6 +67,7 @@ def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пол�
         chunk_repository=container.chunk_repository,
         embedding_record_repository=container.embedding_record_repository,
         embedding_specs=container.embedding_specs,
+        bm25_index=container.bm25_index,
         query_rewriter=container.query_rewriter,
         reranker=container.reranker,
     )

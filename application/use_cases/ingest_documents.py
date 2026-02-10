@@ -11,6 +11,7 @@ from domain.entities import Chunk, Document, EmbeddingSpec
 from domain.interfaces import ChunkRepository, ChunkSplitter, DocumentRepository, Embedder, EmbeddingStore, TextExtractor
 
 from application.use_cases.embedding_utils import get_embedder_for_spec
+from application.services.bm25_index import BM25Index
 
 
 def ingest_documents(
@@ -23,6 +24,7 @@ def ingest_documents(
     document_repository: DocumentRepository,
     chunk_repository: ChunkRepository,
     embedding_specs: list[EmbeddingSpec],
+    bm25_index: BM25Index | None = None,
 ) -> list[Document]:
     """Индексировать набор источников, идентифицированных id."""
 
@@ -69,6 +71,8 @@ def ingest_documents(
             chunks=persisted_chunks,
         )
 
+    if bm25_index is not None:
+        bm25_index.update_documents(document_repository.list())
     return ingested_documents
 
 
@@ -77,6 +81,7 @@ def _index_embeddings(
     embedders: dict[str, Embedder],
     embedding_store: EmbeddingStore,
     embedding_specs: list[EmbeddingSpec],
+    bm25_index: BM25Index | None = None,
     document: Document,
     chunks: list[Chunk],
 ) -> None:

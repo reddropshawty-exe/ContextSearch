@@ -86,7 +86,7 @@ class ContextSearchApp:
         self.embedder_label_var = StringVar(value="MiniLM")
         self.embedder_key_var = StringVar(value="all-minilm")
         self.storage_var = StringVar(value=self._default_storage())
-        self.rank_mode_var = StringVar(value="vector")
+        self.rank_mode_var = StringVar(value="rrf")
 
         self.status_var = StringVar(value="Готово")
         self.selected_docs_var = StringVar(value="0 документов выбрано")
@@ -99,6 +99,8 @@ class ContextSearchApp:
 
         self._build_layout()
         self.refresh_documents()
+        if os.getenv("CONTEXTSEARCH_WARMUP") == "1":
+            self.build_container()
 
     def _apply_theme(self) -> None:
         self._style.theme_use("clam")
@@ -211,7 +213,7 @@ class ContextSearchApp:
         rank_select = Combobox(
             rank_row,
             textvariable=self.rank_mode_var,
-            values=["vector", "bm25"],
+            values=["rrf", "vector", "bm25"],
             width=12,
             state="readonly",
         )
@@ -317,8 +319,10 @@ class ContextSearchApp:
     @staticmethod
     def _default_storage() -> str:
         safe_embedder = "all-minilm".replace("/", "-")
-        slug = f"{safe_embedder}-hnsw"
-        indexes_dir = Path(DATA_ROOT) / slug / "indexes"
+        sqlite_db = Path(DATA_ROOT) / f"{safe_embedder}-sqlite" / "contextsearch.db"
+        if sqlite_db.exists():
+            return "sqlite"
+        indexes_dir = Path(DATA_ROOT) / f"{safe_embedder}-hnsw" / "indexes"
         if indexes_dir.exists() and any(indexes_dir.glob("*.bin")):
             return "hnsw"
         return "in_memory"
@@ -366,7 +370,7 @@ class ContextSearchApp:
             self.documents_list.insert(END, doc.title or doc.metadata.get("display_name") or doc.id)
 
         self.config_count_var.set(f"{len(docs)} документов проиндексировано")
-        store_label = "HNSW" if self.storage_var.get() == "hnsw" else "In-memory"
+        store_label = {"hnsw": "HNSW", "sqlite": "SQLite", "in_memory": "In-memory"}.get(self.storage_var.get(), self.storage_var.get())
         self.config_name_btn.configure(text=f"{self.embedder_label_var.get()} - {store_label}")
 
     def open_add_documents_modal(self) -> None:
@@ -454,6 +458,7 @@ class ContextSearchApp:
                 document_repository=container.document_repository,
                 chunk_repository=container.chunk_repository,
                 embedding_specs=container.embedding_specs,
+                bm25_index=container.bm25_index,
             )
         finally:
             progress.destroy()
@@ -484,7 +489,8 @@ class ContextSearchApp:
                 embedding_specs=container.embedding_specs,
                 query_rewriter=container.query_rewriter,
                 reranker=container.reranker,
-                use_bm25=self.bm25_var.get() or self.rank_mode_var.get() == "bm25",
+                bm25_index=container.bm25_index,
+                use_bm25=self.bm25_var.get() or self.rank_mode_var.get() in {"bm25", "rrf"},
                 ranking_mode=self.rank_mode_var.get(),
             )
         finally:
@@ -558,41 +564,18 @@ class ContextSearchApp:
                 self.results.append({"source_uri": result.chunk.metadata.get("source_uri", ""), "document_id": result.document_id})
             return
 
-        grouped: dict[str, dict[str, object]] = {}
-        for result in self._search_results_cache:
-            if result.chunk is None:
-                continue
-            key = result.document_id
-            chunk_score = float(result.metadata.get("chunk_score", result.score))
-            current = grouped.get(key)
-            if current is None:
-                grouped[key] = {
-                    "result": result,
-                    "best_chunk": chunk_score,
-                    "chunks": 1,
-                    "doc": result.metadata.get("document_vector_score"),
-                    "bm25": result.metadata.get("bm25_score"),
-                }
-            else:
-                current["best_chunk"] = max(float(current["best_chunk"]), chunk_score)
-                current["chunks"] = int(current["chunks"]) + 1
-
-        ranked = sorted(grouped.values(), key=lambda item: float(item["best_chunk"]), reverse=True)
-        if not show_all:
-            ranked = ranked[:10]
-
-        for item in ranked:
-            result = item["result"]
-            assert isinstance(result, RetrievalResult)
+        rows = self._search_results_cache if show_all else self._search_results_cache[:10]
+        for result in rows:
             display_name = result.document.metadata.get("display_name") if result.document else result.document_id
             line = (
-                f"{display_name} | bm25={self._fmt(item['bm25'])} | doc={self._fmt(item['doc'])} | "
-                f"фрагментов={item['chunks']}"
+                f"{display_name} | score={self._fmt(result.score)} | "
+                f"bm25={self._fmt(result.metadata.get('bm25_score'))} | "
+                f"doc={self._fmt(result.metadata.get('document_vector_score'))}"
             )
             listbox.insert(END, line)
             self.results.append(
                 {
-                    "source_uri": result.chunk.metadata.get("source_uri", "") if result.chunk else "",
+                    "source_uri": result.chunk.metadata.get("source_uri", "") if result.chunk else (result.document.path if result.document else ""),
                     "document_id": result.document_id,
                 }
             )
@@ -658,8 +641,9 @@ class ContextSearchApp:
 
         Label(modal, text="Тип хранилища", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(anchor="w", padx=10, pady=(8, 0))
         storage_var = StringVar(value=self.storage_var.get())
+        Radiobutton(modal, text="SQLite", variable=storage_var, value="sqlite", bg=PALETTE["modal_bg"], fg=PALETTE["text"], selectcolor=PALETTE["card_bg"]).pack(anchor="w", padx=14)
         Radiobutton(modal, text="HNSW", variable=storage_var, value="hnsw", bg=PALETTE["modal_bg"], fg=PALETTE["text"], selectcolor=PALETTE["card_bg"]).pack(anchor="w", padx=14)
-        Radiobutton(modal, text="In-memory", variable=storage_var, value="in_memory", bg=PALETTE["modal_bg"], fg=PALETTE["text"], selectcolor=PALETTE["card_bg"]).pack(anchor="w", padx=14)
+        Radiobutton(modal, text="In-memory (dev)", variable=storage_var, value="in_memory", bg=PALETTE["modal_bg"], fg=PALETTE["text"], selectcolor=PALETTE["card_bg"]).pack(anchor="w", padx=14)
 
         meta_label = Label(modal, text="", bg=PALETTE["modal_bg"], fg=PALETTE["muted_text"], font=FONTS["small"], justify="left")
         meta_label.pack(anchor="w", padx=10, pady=8)
@@ -670,30 +654,41 @@ class ContextSearchApp:
         def refresh_preview(*_args) -> None:
             embedder_name = model_var.get()
             embedder_key = next((key for name, key in MODEL_CHOICES if name == embedder_name), self.embedder_key_var.get())
-            config = ContainerConfig(
-                embedder=embedder_key,
-                embedding_store=storage_var.get(),
-                rewriter="llm" if self.llm_rewrite_var.get() else "simple",
-                data_root=DATA_ROOT,
-            )
-            container = build_default_container(config)
-            spec = next((s for s in container.embedding_specs if s.level == "document" and s.model_name == embedder_key), None)
+            slug = f"{embedder_key.replace('/', '-')}-{storage_var.get()}"
+            db_path = Path(DATA_ROOT) / slug / "contextsearch.db"
 
             docs_list.delete(0, END)
-            if spec is None:
-                docs = container.document_repository.list()
-                meta_label.configure(text="Размерность вектора: -\nМетрика сходства: -\nТип индекса: -")
-            else:
-                ids = set(container.embedding_record_repository.list_object_ids(spec.id, "document"))
-                docs = [d for d in container.document_repository.list() if d.id in ids]
-                meta_label.configure(
-                    text=(
-                        f"Размерность вектора: {spec.dimension}\n"
-                        f"Метрика сходства: {spec.metric}\n"
-                        f"Тип индекса: {storage_var.get()}\n"
-                        f"Проиндексировано: {len(docs)} документа"
-                    )
-                )
+            if not db_path.exists():
+                meta_label.configure(text=(
+                    "Размерность вектора: -\n"
+                    "Метрика сходства: -\n"
+                    f"Тип индекса: {storage_var.get()}\n"
+                    "Проиндексировано: 0 документа"
+                ))
+                return
+
+            from infrastructure.repositories.sqlite_document_repository import SqliteDocumentRepository
+            from infrastructure.repositories.sqlite_embedding_record_repository import SqliteEmbeddingRecordRepository
+            from infrastructure.repositories.sqlite_embedding_spec_repository import SqliteEmbeddingSpecRepository
+
+            doc_repo = SqliteDocumentRepository(db_path=db_path)
+            rec_repo = SqliteEmbeddingRecordRepository(db_path=db_path)
+            spec_repo = SqliteEmbeddingSpecRepository(db_path=db_path)
+            all_docs = doc_repo.list()
+            indexed_ids = set()
+            dims: list[int] = []
+            for spec in spec_repo.list():
+                if spec.level == "document" and spec.model_name == embedder_key:
+                    dims.append(spec.dimension)
+                    indexed_ids.update(rec_repo.list_object_ids(spec.id, "document"))
+            docs = [d for d in all_docs if d.id in indexed_ids] if indexed_ids else all_docs
+            dim_text = ",".join(str(d) for d in sorted(set(dims))) if dims else "-"
+            meta_label.configure(text=(
+                f"Размерность вектора: {dim_text}\n"
+                "Метрика сходства: cosine\n"
+                f"Тип индекса: {storage_var.get()}\n"
+                f"Проиндексировано: {len(docs)} документа"
+            ))
             for doc in docs:
                 docs_list.insert(END, doc.title or doc.metadata.get("display_name") or doc.id)
 
