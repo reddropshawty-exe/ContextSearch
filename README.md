@@ -126,3 +126,17 @@ CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
   BM25‑retrieval и cross-encoder reranking, а также гибкие параметры top‑K и агрегации.
 - **Наблюдаемость и тесты.** Ввести unit-тесты для use cases, structured logging
   в API, сбор метрик и сохранение результатов экспериментов.
+
+## Retrieval evaluation
+
+- Requirements: `docs/retrieval_evaluation_requirements.md`
+- Class diagram (PlantUML): `docs/retrieval_evaluation_class_diagram.puml`
+
+### Evaluation subsystem (implemented)
+
+- API endpoints:
+  - `POST /evaluation/suites`, `GET /evaluation/suites`
+  - `POST /evaluation/configs`, `GET /evaluation/configs`
+  - `POST /evaluation/runs`, `GET /evaluation/runs`
+- Tkinter: кнопка `Тестирование` открывает режим разметки/прогона и историю запусков.
+- SQLite storage tables: `eval_test_suites`, `eval_test_cases`, `eval_experiment_configs`, `eval_experiment_runs`, `eval_case_results`.

@@ -35,6 +35,7 @@ from infrastructure.repositories.sqlite_chunk_repository import SqliteChunkRepos
 from infrastructure.repositories.sqlite_document_repository import SqliteDocumentRepository
 from infrastructure.repositories.sqlite_embedding_record_repository import SqliteEmbeddingRecordRepository
 from infrastructure.repositories.sqlite_embedding_spec_repository import SqliteEmbeddingSpecRepository
+from infrastructure.repositories.sqlite_evaluation_repository import SqliteEvaluationRepository
 from infrastructure.splitting.fixed_window_splitter import FixedWindowSplitter
 from infrastructure.storage.hnsw_embedding_store import HnswEmbeddingStore
 from infrastructure.storage.in_memory_embedding_store import InMemoryEmbeddingStore
@@ -80,6 +81,7 @@ class Container:
     reranker: Reranker
     embedding_specs: list[EmbeddingSpec]
     bm25_index: BM25Index = field(default_factory=BM25Index)
+    evaluation_repository: SqliteEvaluationRepository | None = None
 
 
 @dataclass(slots=True)
@@ -139,6 +141,7 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
     embedding_store = _build_embedding_store(cfg, embedding_record_repository, db_path=db_path, index_root=index_root)
     bm25_index = BM25Index()
     bm25_index.update_documents(document_repository.list())
+    evaluation_repository = SqliteEvaluationRepository(db_path=db_path)
     query_rewriter = _build_rewriter(cfg)
     reranker = SimpleReranker()
 
@@ -156,6 +159,7 @@ def build_default_container(config: ContainerConfig | None = None) -> Container:
         reranker=reranker,
         embedding_specs=embedding_specs,
         bm25_index=bm25_index,
+        evaluation_repository=evaluation_repository,
     )
 
 

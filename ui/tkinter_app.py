@@ -27,6 +27,7 @@ from tkinter import (
 )
 from tkinter.ttk import Combobox, Progressbar, Style
 
+from application.evaluation.service import create_experiment_config, create_test_case, create_test_suite, run_and_save_experiment
 from application.use_cases.ingest_paths import ingest_paths
 from application.use_cases.search import search
 from domain.entities import Document, RetrievalResult
@@ -272,6 +273,7 @@ class ContextSearchApp:
 
         self._make_button(top, text="Посмотреть", command=lambda: self.open_config_modal(mode="view")).pack(side=LEFT, padx=6)
         self._make_button(top, text="Индексировать", command=self.index_documents, variant="success").pack(side=LEFT, padx=6)
+        self._make_button(top, text="Тестирование", command=self.open_evaluation_modal, variant="secondary").pack(side=LEFT, padx=6)
 
         self.documents_list = Listbox(
             zone,
@@ -714,6 +716,100 @@ class ContextSearchApp:
 
     def open_change_config(self) -> None:
         self.open_config_modal(mode="change")
+
+    def open_evaluation_modal(self) -> None:
+        container = self.build_container()
+        repo = getattr(container, "evaluation_repository", None)
+        if repo is None:
+            messagebox.showerror("Тестирование", "Evaluation repository недоступен")
+            return
+
+        modal = Toplevel(self.root)
+        modal.title("Тестирование / Разметка")
+        modal.transient(self.root)
+        modal.grab_set()
+        modal.geometry("980x700")
+        modal.configure(bg=PALETTE["modal_bg"])
+
+        self._make_button(modal, text="✕", command=modal.destroy, variant="danger", width=3).pack(anchor="ne", padx=6, pady=6)
+        Label(modal, text="Тестирование качества поиска", font=FONTS["subtitle"], bg=PALETTE["modal_bg"], fg=PALETTE["text"]).pack(anchor="w", padx=10)
+
+        form = Frame(modal, bg=PALETTE["modal_bg"])
+        form.pack(fill=X, padx=10, pady=8)
+
+        Label(form, text="Dataset", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=0, sticky="w")
+        suite_name_var = StringVar(value="Оценка поиска")
+        Entry(form, textvariable=suite_name_var, width=26, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=0, padx=4)
+
+        Label(form, text="Query", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=1, sticky="w")
+        query_var = StringVar(value="")
+        Entry(form, textvariable=query_var, width=40, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=1, padx=4)
+
+        Label(form, text="Relevant doc ids (;)", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=2, sticky="w")
+        rel_var = StringVar(value="")
+        Entry(form, textvariable=rel_var, width=30, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=2, padx=4)
+
+        Label(form, text="Top-K", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=3, sticky="w")
+        top_k_var = StringVar(value="10")
+        Entry(form, textvariable=top_k_var, width=8, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=3, padx=4)
+
+        rank_var = StringVar(value="hybrid_rrf")
+        Label(form, text="Ranking", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=4, sticky="w")
+        Combobox(form, textvariable=rank_var, values=["hybrid_rrf", "vector", "bm25"], width=12, state="readonly").grid(row=1, column=4, padx=4)
+
+        metrics_box = Listbox(modal, width=140, height=22, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
+        metrics_box.pack(fill=BOTH, expand=True, padx=10, pady=8)
+
+        footer = Frame(modal, bg=PALETTE["modal_bg"])
+        footer.pack(fill=X, padx=10, pady=8)
+
+        def refresh_history() -> None:
+            metrics_box.delete(0, END)
+            runs = repo.list_runs()
+            for run in runs[:100]:
+                metrics = ", ".join(f"{k}={v:.3f}" for k, v in sorted(run.aggregate_metrics.items()))
+                metrics_box.insert(END, f"RUN {run.id[:8]} | suite={run.test_suite_id[:8]} | {metrics}")
+
+        def create_and_run() -> None:
+            query_text = query_var.get().strip()
+            rel_raw = rel_var.get().strip()
+            if not query_text or not rel_raw:
+                messagebox.showwarning("Тестирование", "Нужны query и relevant doc ids")
+                return
+            relevant_ids = [x.strip() for x in rel_raw.split(";") if x.strip()]
+            if not relevant_ids:
+                messagebox.showwarning("Тестирование", "Список relevant doc ids пуст")
+                return
+
+            suite = create_test_suite(suite_name_var.get().strip() or "Оценка поиска")
+            suite.document_ids = [d.id for d in container.document_repository.list()]
+            suite.test_cases.append(create_test_case(query_text, relevant_ids, source="user"))
+
+            spec = self._active_document_spec(container)
+            if spec is None:
+                messagebox.showerror("Тестирование", "Не найдена активная document spec")
+                return
+            config = create_experiment_config(
+                embedding_spec_id=spec.id,
+                store_type=self.storage_var.get(),
+                use_bm25=True,
+                ranking_mode=rank_var.get(),
+                query_rewriter=("llm" if self.llm_rewrite_var.get() else "none"),
+                top_k=max(1, int(top_k_var.get() or "10")),
+            )
+            run = run_and_save_experiment(
+                suite=suite,
+                config=config,
+                container=container,
+                repository=repo,
+            )
+            messagebox.showinfo("Тестирование", f"Прогон завершен. run_id={run.id}")
+            refresh_history()
+
+        self._make_button(footer, text="Запустить прогон", command=create_and_run, variant="primary").pack(side=LEFT, padx=4)
+        self._make_button(footer, text="Обновить историю", command=refresh_history, variant="secondary").pack(side=LEFT, padx=4)
+
+        refresh_history()
 
     def _open_progress(self, text: str) -> Toplevel:
         modal = Toplevel(self.root)

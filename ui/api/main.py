@@ -6,6 +6,12 @@ from pydantic import BaseModel
 
 from application.use_cases.ingest_documents import ingest_documents
 from application.use_cases.search import search
+from application.evaluation.service import (
+    create_experiment_config,
+    create_test_case,
+    create_test_suite,
+    run_and_save_experiment,
+)
 from domain.entities import Document
 from infrastructure.config import build_default_container
 from ui.logging_utils import setup_logging
@@ -32,6 +38,33 @@ class IngestResponse(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: list[dict]
+
+
+class EvalCasePayload(BaseModel):
+    query_text: str
+    relevant_document_ids: list[str]
+    source: str = "user"
+
+
+class EvalSuitePayload(BaseModel):
+    name: str
+    description: str = ""
+    cases: list[EvalCasePayload]
+
+
+class EvalConfigPayload(BaseModel):
+    embedding_spec_id: str
+    store_type: str
+    use_bm25: bool = True
+    ranking_mode: str = "hybrid_rrf"
+    query_rewriter: str = "none"
+    top_k: int = 10
+    rrf_k: int = 60
+
+
+class EvalRunPayload(BaseModel):
+    suite_id: str
+    config_id: str
 
 
 @app.post("/ingest", response_model=IngestResponse)
@@ -83,3 +116,102 @@ def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пол�
         for result in results
     ]
     return SearchResponse(query=q, results=serialized)
+
+
+@app.post("/evaluation/suites")
+def create_eval_suite(payload: EvalSuitePayload) -> dict:
+    if container.evaluation_repository is None:
+        return {"error": "evaluation repository unavailable"}
+    suite = create_test_suite(payload.name, payload.description)
+    for case in payload.cases:
+        suite.test_cases.append(
+            create_test_case(
+                case.query_text,
+                case.relevant_document_ids,
+                source=case.source,
+            )
+        )
+    container.evaluation_repository.upsert_suite(suite)
+    return {"suite_id": suite.id, "cases": len(suite.test_cases)}
+
+
+@app.get("/evaluation/suites")
+def list_eval_suites() -> list[dict]:
+    if container.evaluation_repository is None:
+        return []
+    suites = container.evaluation_repository.list_suites()
+    return [{"id": s.id, "name": s.name, "description": s.description} for s in suites]
+
+
+@app.post("/evaluation/configs")
+def create_eval_config(payload: EvalConfigPayload) -> dict:
+    if container.evaluation_repository is None:
+        return {"error": "evaluation repository unavailable"}
+    config = create_experiment_config(
+        embedding_spec_id=payload.embedding_spec_id,
+        store_type=payload.store_type,
+        use_bm25=payload.use_bm25,
+        ranking_mode=payload.ranking_mode,
+        query_rewriter=payload.query_rewriter,
+        top_k=payload.top_k,
+        rrf_k=payload.rrf_k,
+    )
+    container.evaluation_repository.upsert_config(config)
+    return {"config_id": config.id}
+
+
+@app.get("/evaluation/configs")
+def list_eval_configs() -> list[dict]:
+    if container.evaluation_repository is None:
+        return []
+    cfgs = container.evaluation_repository.list_configs()
+    return [
+        {
+            "id": c.id,
+            "embedding_spec_id": c.embedding_spec_id,
+            "store_type": c.store_type,
+            "use_bm25": c.use_bm25,
+            "ranking_mode": c.ranking_mode,
+            "query_rewriter": c.query_rewriter,
+            "top_k": c.top_k,
+            "rrf_k": c.rrf_k,
+        }
+        for c in cfgs
+    ]
+
+
+@app.post("/evaluation/runs")
+def run_evaluation(payload: EvalRunPayload) -> dict:
+    if container.evaluation_repository is None:
+        return {"error": "evaluation repository unavailable"}
+    suite = container.evaluation_repository.get_suite(payload.suite_id)
+    if suite is None:
+        return {"error": "suite not found"}
+    configs = {c.id: c for c in container.evaluation_repository.list_configs()}
+    config = configs.get(payload.config_id)
+    if config is None:
+        return {"error": "config not found"}
+    run = run_and_save_experiment(
+        suite=suite,
+        config=config,
+        container=container,
+        repository=container.evaluation_repository,
+    )
+    return {"run_id": run.id, "aggregate_metrics": run.aggregate_metrics}
+
+
+@app.get("/evaluation/runs")
+def list_eval_runs() -> list[dict]:
+    if container.evaluation_repository is None:
+        return []
+    runs = container.evaluation_repository.list_runs()
+    return [
+        {
+            "id": r.id,
+            "suite_id": r.test_suite_id,
+            "config_id": r.experiment_config_id,
+            "created_at": r.created_at.isoformat(),
+            "aggregate_metrics": r.aggregate_metrics,
+        }
+        for r in runs
+    ]
