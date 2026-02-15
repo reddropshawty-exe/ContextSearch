@@ -768,7 +768,13 @@ class ContextSearchApp:
         docs_list = Listbox(docs_frame, width=140, height=8, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"], selectmode="extended")
         docs_list.pack(fill=BOTH, expand=False, pady=4)
 
-        metrics_box = Listbox(modal, width=140, height=12, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
+        labels_frame = Frame(modal, bg=PALETTE["modal_bg"])
+        labels_frame.pack(fill=BOTH, expand=False, padx=10, pady=6)
+        Label(labels_frame, text="Метки (корректные запросы -> релевантные документы)", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).pack(anchor="w")
+        labels_list = Listbox(labels_frame, width=140, height=7, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
+        labels_list.pack(fill=BOTH, expand=False, pady=4)
+
+        metrics_box = Listbox(modal, width=140, height=10, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
         metrics_box.pack(fill=BOTH, expand=True, padx=10, pady=8)
 
         footer = Frame(modal, bg=PALETTE["modal_bg"])
@@ -831,6 +837,36 @@ class ContextSearchApp:
         self._make_button(docs_picker, text="Индексировать в набор", command=index_eval_docs, variant="success").pack(side=LEFT, padx=4)
         Label(docs_picker, textvariable=selected_paths_var, bg=PALETTE["modal_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=10)
 
+        labeled_cases: list[tuple[str, list[str]]] = []
+
+        def refresh_labels_list() -> None:
+            labels_list.delete(0, END)
+            for idx, (q_text, rel_ids) in enumerate(labeled_cases, start=1):
+                labels_list.insert(END, f"{idx}. query='{q_text}' | релевантных документов={len(rel_ids)}")
+
+        def add_label_case() -> None:
+            query_text = query_var.get().strip()
+            selected = docs_list.curselection()
+            if not query_text or not selected:
+                messagebox.showwarning("Тестирование", "Введите query и выберите релевантные документы")
+                return
+            relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
+            if not relevant_ids:
+                messagebox.showwarning("Тестирование", "Список релевантных документов пуст")
+                return
+            labeled_cases.append((query_text, relevant_ids))
+            query_var.set("")
+            refresh_labels_list()
+
+        def remove_selected_label() -> None:
+            sel = labels_list.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+            if 0 <= idx < len(labeled_cases):
+                labeled_cases.pop(idx)
+                refresh_labels_list()
+
         def refresh_history() -> None:
             metrics_box.delete(0, END)
             runs = repo.list_runs()
@@ -839,19 +875,24 @@ class ContextSearchApp:
                 metrics_box.insert(END, f"RUN {run.id[:8]} | suite={run.test_suite_id[:8]} | {metrics}")
 
         def create_and_run() -> None:
-            query_text = query_var.get().strip()
-            selected = docs_list.curselection()
-            if not query_text or not selected:
-                messagebox.showwarning("Тестирование", "Нужны query и выбор релевантных документов в списке")
-                return
-            relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
-            if not relevant_ids:
-                messagebox.showwarning("Тестирование", "Список релевантных документов пуст")
+            if not labeled_cases:
+                # удобный fallback: если не нажали "Добавить метку", пробуем взять текущие поля
+                query_text = query_var.get().strip()
+                selected = docs_list.curselection()
+                if query_text and selected:
+                    relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
+                    if relevant_ids:
+                        labeled_cases.append((query_text, relevant_ids))
+                        refresh_labels_list()
+
+            if not labeled_cases:
+                messagebox.showwarning("Тестирование", "Добавьте хотя бы одну метку (query -> документы)")
                 return
 
             suite = create_test_suite(suite_name_var.get().strip() or "Оценка поиска")
             suite.document_ids = [d.id for d in docs_index]
-            suite.test_cases.append(create_test_case(query_text, relevant_ids, source="user"))
+            for q_text, rel_ids in labeled_cases:
+                suite.test_cases.append(create_test_case(q_text, rel_ids, source="user"))
 
             spec = self._active_document_spec(container)
             if spec is None:
@@ -874,11 +915,14 @@ class ContextSearchApp:
             messagebox.showinfo("Тестирование", f"Прогон завершен. run_id={run.id}")
             refresh_history()
 
+        self._make_button(footer, text="Добавить метку", command=add_label_case, variant="success").pack(side=LEFT, padx=4)
+        self._make_button(footer, text="Удалить метку", command=remove_selected_label, variant="danger").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Запустить прогон", command=create_and_run, variant="primary").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Обновить историю", command=refresh_history, variant="secondary").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Обновить документы", command=refresh_docs_list, variant="ghost").pack(side=LEFT, padx=4)
 
         refresh_docs_list()
+        refresh_labels_list()
         refresh_history()
 
     def _open_progress(self, text: str) -> Toplevel:
