@@ -745,23 +745,91 @@ class ContextSearchApp:
         query_var = StringVar(value="")
         Entry(form, textvariable=query_var, width=40, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=1, padx=4)
 
-        Label(form, text="Relevant doc ids (;)", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=2, sticky="w")
-        rel_var = StringVar(value="")
-        Entry(form, textvariable=rel_var, width=30, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=2, padx=4)
-
-        Label(form, text="Top-K", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=3, sticky="w")
+        Label(form, text="Top-K", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=2, sticky="w")
         top_k_var = StringVar(value="10")
-        Entry(form, textvariable=top_k_var, width=8, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=3, padx=4)
+        Entry(form, textvariable=top_k_var, width=8, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=2, padx=4)
 
         rank_var = StringVar(value="hybrid_rrf")
-        Label(form, text="Ranking", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=4, sticky="w")
-        Combobox(form, textvariable=rank_var, values=["hybrid_rrf", "vector", "bm25"], width=12, state="readonly").grid(row=1, column=4, padx=4)
+        Label(form, text="Ranking", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=3, sticky="w")
+        Combobox(form, textvariable=rank_var, values=["hybrid_rrf", "vector", "bm25"], width=12, state="readonly").grid(row=1, column=3, padx=4)
 
-        metrics_box = Listbox(modal, width=140, height=22, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
+        docs_frame = Frame(modal, bg=PALETTE["modal_bg"])
+        docs_frame.pack(fill=BOTH, expand=True, padx=10, pady=6)
+
+        docs_ctrl = Frame(docs_frame, bg=PALETTE["modal_bg"])
+        docs_ctrl.pack(fill=X)
+        Label(docs_ctrl, text="Документы тестового набора (как в обычном режиме: добавить -> индексировать)", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).pack(side=LEFT, padx=4)
+
+        docs_picker = Frame(docs_frame, bg=PALETTE["modal_bg"])
+        docs_picker.pack(fill=X, pady=4)
+        eval_selected_paths: list[Path] = []
+        selected_paths_var = StringVar(value="0 документов выбрано")
+
+        docs_list = Listbox(docs_frame, width=140, height=8, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"], selectmode="extended")
+        docs_list.pack(fill=BOTH, expand=False, pady=4)
+
+        metrics_box = Listbox(modal, width=140, height=12, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
         metrics_box.pack(fill=BOTH, expand=True, padx=10, pady=8)
 
         footer = Frame(modal, bg=PALETTE["modal_bg"])
         footer.pack(fill=X, padx=10, pady=8)
+
+        docs_index: list[Document] = []
+
+        def refresh_docs_list() -> None:
+            nonlocal docs_index
+            docs_list.delete(0, END)
+            docs_index = container.document_repository.list()
+            for doc in docs_index:
+                docs_list.insert(END, doc.title or doc.metadata.get("display_name") or doc.id)
+
+        def add_eval_files() -> None:
+            files = filedialog.askopenfilenames(
+                filetypes=[("Документы", "*.pdf *.docx *.txt *.md *.html *.htm"), ("Все файлы", "*.*")]
+            )
+            for f in files:
+                path = Path(f)
+                if path not in eval_selected_paths:
+                    eval_selected_paths.append(path)
+            selected_paths_var.set(f"{len(eval_selected_paths)} документов выбрано")
+
+        def add_eval_folder() -> None:
+            folder = filedialog.askdirectory()
+            if not folder:
+                return
+            root = Path(folder)
+            for fp in root.rglob("*"):
+                if fp.is_file() and fp.suffix.lower() in {".pdf", ".docx", ".txt", ".md", ".html", ".htm"}:
+                    if fp not in eval_selected_paths:
+                        eval_selected_paths.append(fp)
+            selected_paths_var.set(f"{len(eval_selected_paths)} документов выбрано")
+
+        def index_eval_docs() -> None:
+            if not eval_selected_paths:
+                messagebox.showinfo("Тестирование", "Сначала добавьте документы")
+                return
+            progress = self._open_progress("Индексация документов для тестового набора...")
+            try:
+                ingest_paths(
+                    eval_selected_paths,
+                    splitter=container.splitter,
+                    embedders=container.embedders,
+                    embedding_store=container.embedding_store,
+                    document_repository=container.document_repository,
+                    chunk_repository=container.chunk_repository,
+                    embedding_specs=container.embedding_specs,
+                    bm25_index=container.bm25_index,
+                )
+            finally:
+                progress.destroy()
+            eval_selected_paths.clear()
+            selected_paths_var.set("0 документов выбрано")
+            refresh_docs_list()
+
+        self._make_button(docs_picker, text="Добавить файл", command=add_eval_files, variant="secondary").pack(side=LEFT, padx=4)
+        self._make_button(docs_picker, text="Добавить папку", command=add_eval_folder, variant="primary").pack(side=LEFT, padx=4)
+        self._make_button(docs_picker, text="Индексировать в набор", command=index_eval_docs, variant="success").pack(side=LEFT, padx=4)
+        Label(docs_picker, textvariable=selected_paths_var, bg=PALETTE["modal_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=10)
 
         def refresh_history() -> None:
             metrics_box.delete(0, END)
@@ -772,17 +840,17 @@ class ContextSearchApp:
 
         def create_and_run() -> None:
             query_text = query_var.get().strip()
-            rel_raw = rel_var.get().strip()
-            if not query_text or not rel_raw:
-                messagebox.showwarning("Тестирование", "Нужны query и relevant doc ids")
+            selected = docs_list.curselection()
+            if not query_text or not selected:
+                messagebox.showwarning("Тестирование", "Нужны query и выбор релевантных документов в списке")
                 return
-            relevant_ids = [x.strip() for x in rel_raw.split(";") if x.strip()]
+            relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
             if not relevant_ids:
-                messagebox.showwarning("Тестирование", "Список relevant doc ids пуст")
+                messagebox.showwarning("Тестирование", "Список релевантных документов пуст")
                 return
 
             suite = create_test_suite(suite_name_var.get().strip() or "Оценка поиска")
-            suite.document_ids = [d.id for d in container.document_repository.list()]
+            suite.document_ids = [d.id for d in docs_index]
             suite.test_cases.append(create_test_case(query_text, relevant_ids, source="user"))
 
             spec = self._active_document_spec(container)
@@ -808,7 +876,9 @@ class ContextSearchApp:
 
         self._make_button(footer, text="Запустить прогон", command=create_and_run, variant="primary").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Обновить историю", command=refresh_history, variant="secondary").pack(side=LEFT, padx=4)
+        self._make_button(footer, text="Обновить документы", command=refresh_docs_list, variant="ghost").pack(side=LEFT, padx=4)
 
+        refresh_docs_list()
         refresh_history()
 
     def _open_progress(self, text: str) -> Toplevel:
