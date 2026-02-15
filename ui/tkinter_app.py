@@ -728,7 +728,7 @@ class ContextSearchApp:
         modal.title("Тестирование / Разметка")
         modal.transient(self.root)
         modal.grab_set()
-        modal.geometry("980x700")
+        modal.geometry("1120x760")
         modal.configure(bg=PALETTE["modal_bg"])
 
         self._make_button(modal, text="✕", command=modal.destroy, variant="danger", width=3).pack(anchor="ne", padx=6, pady=6)
@@ -743,7 +743,9 @@ class ContextSearchApp:
 
         Label(form, text="Query", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=1, sticky="w")
         query_var = StringVar(value="")
-        Entry(form, textvariable=query_var, width=40, bg=PALETTE["input_bg"], fg=PALETTE["input_text"]).grid(row=1, column=1, padx=4)
+        query_entry = Entry(form, textvariable=query_var, width=40, bg=PALETTE["input_bg"], fg=PALETTE["input_text"])
+        query_entry.grid(row=1, column=1, padx=4)
+        query_entry.focus_set()
 
         Label(form, text="Top-K", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=2, sticky="w")
         top_k_var = StringVar(value="10")
@@ -767,6 +769,13 @@ class ContextSearchApp:
 
         docs_list = Listbox(docs_frame, width=140, height=8, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"], selectmode="extended")
         docs_list.pack(fill=BOTH, expand=False, pady=4)
+        Label(
+            docs_frame,
+            text="Шаг 1: выберите релевантные документы в списке (Ctrl/Shift). Шаг 2: введите query. Шаг 3: Добавить метку.",
+            bg=PALETTE["modal_bg"],
+            fg=PALETTE["muted_text"],
+            font=FONTS["small"],
+        ).pack(anchor="w", pady=(0, 4))
 
         labels_frame = Frame(modal, bg=PALETTE["modal_bg"])
         labels_frame.pack(fill=BOTH, expand=False, padx=10, pady=6)
@@ -774,11 +783,11 @@ class ContextSearchApp:
         labels_list = Listbox(labels_frame, width=140, height=7, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
         labels_list.pack(fill=BOTH, expand=False, pady=4)
 
-        metrics_box = Listbox(modal, width=140, height=10, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
-        metrics_box.pack(fill=BOTH, expand=True, padx=10, pady=8)
-
         footer = Frame(modal, bg=PALETTE["modal_bg"])
         footer.pack(fill=X, padx=10, pady=8)
+
+        metrics_box = Listbox(modal, width=140, height=10, bg=PALETTE["list_bg"], fg=PALETTE["text"], selectbackground=PALETTE["primary"], relief="flat", font=FONTS["body"])
+        metrics_box.pack(fill=BOTH, expand=True, padx=10, pady=8)
 
         docs_index: list[Document] = []
         test_set_doc_ids: set[str] = set()
