@@ -1,0 +1,41 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+
+package "application.evaluation.models" {
+  class TestSuite
+  class TestCase
+  class RelevanceLabel
+  class ExperimentConfig
+  class ExperimentRun
+  class CaseRunResult
+}
+
+package "application.evaluation" {
+  class BM25Index
+  class EvaluationRunner {
+    +run_experiment_suite()
+  }
+}
+
+package "infrastructure.repositories" {
+  class SqliteEvaluationRepository
+}
+
+TestSuite "1" o-- "*" TestCase
+TestCase "1" o-- "*" RelevanceLabel
+ExperimentRun "1" o-- "*" CaseRunResult
+ExperimentRun --> ExperimentConfig
+ExperimentRun --> TestSuite
+
+SqliteEvaluationRepository ..> TestSuite
+SqliteEvaluationRepository ..> ExperimentConfig
+SqliteEvaluationRepository ..> ExperimentRun
+SqliteEvaluationRepository ..> CaseRunResult
+
+EvaluationRunner ..> TestSuite
+EvaluationRunner ..> ExperimentConfig
+EvaluationRunner ..> ExperimentRun
+EvaluationRunner ..> CaseRunResult
+
+@enduml
