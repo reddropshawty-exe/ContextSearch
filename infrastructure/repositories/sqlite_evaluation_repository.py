@@ -195,6 +195,16 @@ class SqliteEvaluationRepository:
             for key in sorted(keys)
         }
 
+    def clear_runs(self) -> None:
+        """Удалить все сохранённые прогоны и их результаты.
+
+        Используется при изменении индексированной коллекции,
+        чтобы не держать устаревшие метрики.
+        """
+        with self._connect() as conn:
+            conn.execute("DELETE FROM eval_case_results")
+            conn.execute("DELETE FROM eval_experiment_runs")
+
     def save_run(self, run: ExperimentRun) -> None:
         with self._connect() as conn:
             conn.execute(

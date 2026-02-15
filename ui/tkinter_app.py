@@ -781,11 +781,13 @@ class ContextSearchApp:
         footer.pack(fill=X, padx=10, pady=8)
 
         docs_index: list[Document] = []
+        test_set_doc_ids: set[str] = set()
 
         def refresh_docs_list() -> None:
-            nonlocal docs_index
+            nonlocal docs_index, test_set_doc_ids
             docs_list.delete(0, END)
             docs_index = container.document_repository.list()
+            test_set_doc_ids = {doc.id for doc in docs_index}
             for doc in docs_index:
                 docs_list.insert(END, doc.title or doc.metadata.get("display_name") or doc.id)
 
@@ -828,9 +830,13 @@ class ContextSearchApp:
                 )
             finally:
                 progress.destroy()
+            repo.clear_runs()
+            labeled_cases.clear()
             eval_selected_paths.clear()
             selected_paths_var.set("0 документов выбрано")
             refresh_docs_list()
+            refresh_labels_list()
+            refresh_history()
 
         self._make_button(docs_picker, text="Добавить файл", command=add_eval_files, variant="secondary").pack(side=LEFT, padx=4)
         self._make_button(docs_picker, text="Добавить папку", command=add_eval_folder, variant="primary").pack(side=LEFT, padx=4)
@@ -854,6 +860,9 @@ class ContextSearchApp:
             if not relevant_ids:
                 messagebox.showwarning("Тестирование", "Список релевантных документов пуст")
                 return
+            if any(doc_id not in test_set_doc_ids for doc_id in relevant_ids):
+                messagebox.showwarning("Тестирование", "Метки должны ссылаться на документы тестового набора")
+                return
             labeled_cases.append((query_text, relevant_ids))
             query_var.set("")
             refresh_labels_list()
@@ -873,6 +882,11 @@ class ContextSearchApp:
             for run in runs[:100]:
                 metrics = ", ".join(f"{k}={v:.3f}" for k, v in sorted(run.aggregate_metrics.items()))
                 metrics_box.insert(END, f"RUN {run.id[:8]} | suite={run.test_suite_id[:8]} | {metrics}")
+                for case in run.case_results:
+                    hit_key = next((key for key in case.metrics if key.startswith("hit@")), None)
+                    hit_value = case.metrics.get(hit_key, 0.0) if hit_key else 0.0
+                    status = "OK" if hit_value >= 1.0 else "MISS"
+                    metrics_box.insert(END, f"  - case={case.test_case_id[:8]} | {status} | {hit_key}={hit_value:.3f}")
 
         def create_and_run() -> None:
             if not labeled_cases:
@@ -890,7 +904,7 @@ class ContextSearchApp:
                 return
 
             suite = create_test_suite(suite_name_var.get().strip() or "Оценка поиска")
-            suite.document_ids = [d.id for d in docs_index]
+            suite.document_ids = list(test_set_doc_ids)
             for q_text, rel_ids in labeled_cases:
                 suite.test_cases.append(create_test_case(q_text, rel_ids, source="user"))
 

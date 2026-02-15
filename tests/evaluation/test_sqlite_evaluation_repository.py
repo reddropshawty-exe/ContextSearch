@@ -96,6 +96,9 @@ class TestSqliteEvaluationRepository(unittest.TestCase):
             diff = repo.compare_runs("run-1", "run-2")
             self.assertAlmostEqual(diff.get("precision@10", 0.0), 0.5)
 
+            repo.clear_runs()
+            self.assertEqual(len(repo.list_runs()), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
