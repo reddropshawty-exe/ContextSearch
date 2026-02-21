@@ -1,0 +1,65 @@
+@startuml
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Analyst as User
+participant "UI/API" as UI
+participant "evaluation.service\nrun_and_save_experiment" as SVC
+participant "run_experiment_suite" as RUNNER
+participant "search use case" as SEARCH
+participant "metrics library" as METRICS
+participant "SqliteEvaluationRepository" as REPO
+
+== Общий пайплайн тестирования качества ==
+User -> UI: Запустить тестовый прогон
+UI -> SVC: run_and_save_experiment(suite, config, container, repo)
+SVC -> REPO: upsert_suite(suite)
+SVC -> REPO: upsert_config(config)
+SVC -> RUNNER: run_experiment_suite(suite, config, search_fn)
+
+loop Для каждого test_case в suite
+  RUNNER -> SEARCH: search_fn(test_case.query_text, top_k)
+  SEARCH --> RUNNER: ranked documents/chunks + scores
+  RUNNER -> METRICS: precision/recall/mrr/ndcg/hit
+  METRICS --> RUNNER: case_metrics
+end
+
+RUNNER -> RUNNER: aggregate_metrics
+RUNNER --> SVC: ExperimentRun(case_results, aggregate_metrics)
+SVC -> REPO: save_run(run)
+SVC --> UI: persisted ExperimentRun
+UI --> User: Показ сводной метрики и истории
+
+newpage
+== Детализация: конфигурации эксперимента ==
+participant "Container" as C
+participant "QueryRewriter" as QR
+participant "EmbeddingStore" as ES
+
+note over SVC
+Перед запуском конфиг влияет на:
+- ranking_mode (hybrid_rrf -> rrf)
+- use_bm25
+- top_k
+- query_rewriter
+- embedding_spec_id / store_type
+end note
+
+SVC -> C: взять зависимости поиска
+SVC -> QR: стратегия rewrite
+SVC -> ES: выбранный storage backend
+
+alt experiment_config.query_rewriter == "none"
+  SEARCH -> QR: passthrough query
+else "simple" / "llm"
+  SEARCH -> QR: generate rewritten queries
+end
+
+note over REPO
+run + per-case результаты хранятся в:
+- eval_experiment_runs
+- eval_case_results
+что позволяет сравнивать прогоны
+и строить историю качества.
+end note
+@enduml

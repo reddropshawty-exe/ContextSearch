@@ -80,6 +80,30 @@ CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
 `in_memory` в интерфейсе (Streamlit/Tkinter) или выставьте
 `embedding_store="in_memory"` в конфигурации.
 
+
+## Offline-модели (без повторной загрузки из сети)
+
+Чтобы приложение работало полностью локально и не тянуло веса из интернета,
+можно заранее скачать модели в папку проекта:
+
+```bash
+python scripts/prefetch_models.py --output-dir models
+```
+
+Далее укажите путь к каталогу моделей:
+
+```bash
+CONTEXTSEARCH_MODELS_DIR=models python -m ui.tkinter_app
+CONTEXTSEARCH_MODELS_DIR=models streamlit run ui/web/app.py
+```
+
+Логика резолвинга такая:
+- если в `CONTEXTSEARCH_MODELS_DIR/<model_id>` есть папка модели — используется она;
+- иначе используется исходный `model_id` из Hugging Face (стандартное поведение).
+
+Это работает и для эмбеддеров (`all-minilm`, `all-mpnet`, `multilingual-e5-base`,
+`embedding-gemma`), и для LLM-query-rewriter.
+
 ## Инфраструктурные модели
 В проекте доступно несколько вариантов экстракторов и эмбеддеров, которые можно
 подобрать под разные источники данных:
@@ -140,3 +164,17 @@ CONTEXTSEARCH_SAFE_MODE=1 streamlit run ui/web/app.py
   - `POST /evaluation/runs`, `GET /evaluation/runs`
 - Tkinter: кнопка `Тестирование` открывает режим разметки/прогона и историю запусков.
 - SQLite storage tables: `eval_test_suites`, `eval_test_cases`, `eval_experiment_configs`, `eval_experiment_runs`, `eval_case_results`.
+
+
+## UML-диаграммы системы
+
+В `docs/diagrams` добавлены PlantUML-диаграммы для архитектурного описания:
+
+- ER-диаграмма: `docs/diagrams/contextsearch_er_diagram.puml`
+- Sequence (индексация): `docs/diagrams/sequence_indexing.puml`
+- Sequence (поиск): `docs/diagrams/sequence_search.puml`
+- Sequence (тестирование качества): `docs/diagrams/sequence_evaluation_testing.puml`
+- Диаграмма классов: `docs/diagrams/contextsearch_class_diagram.puml`
+
+Каждая sequence-диаграмма разделена на общий пайплайн и отдельную страницу
+с детализацией вариативной логики (через `newpage`).

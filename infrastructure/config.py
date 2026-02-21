@@ -98,6 +98,7 @@ class ContainerConfig:
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
     local_rewriter_model: str = "google/flan-t5-small"
+    models_dir: str | None = None
     safe_mode: bool = False
     embedder_models: tuple[EmbedderName, ...] = ("all-minilm",)
 
@@ -195,6 +196,7 @@ def _sentence_model_config_for(model_name: EmbedderName, config: ContainerConfig
         passage_prefix = "passage: "
     elif model_name == "embedding-gemma":
         resolved_name = config.embeddinggemma_model
+    resolved_name = _resolve_model_reference(resolved_name, config)
     return SentenceTransformersConfig(
         model_name=resolved_name,
         device=config.device,
@@ -222,10 +224,20 @@ def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
     if config.rewriter == "llm":
         return LLMQueryRewriter(
             LLMRewriterConfig(
-                model=config.local_rewriter_model,
+                model=_resolve_model_reference(config.local_rewriter_model, config),
             )
         )
     return SimpleQueryRewriter()
+
+
+def _resolve_model_reference(model_ref: str, config: ContainerConfig) -> str:
+    models_dir = config.models_dir or os.getenv("CONTEXTSEARCH_MODELS_DIR")
+    if not models_dir:
+        return model_ref
+    candidate = Path(models_dir).expanduser() / model_ref
+    if candidate.exists():
+        return str(candidate)
+    return model_ref
 
 
 def _safe_mode_enabled(config: ContainerConfig) -> bool:
@@ -245,6 +257,7 @@ def _apply_safe_mode(config: ContainerConfig) -> ContainerConfig:
         normalize_embeddings=config.normalize_embeddings,
         embeddinggemma_model=config.embeddinggemma_model,
         local_rewriter_model=config.local_rewriter_model,
+        models_dir=config.models_dir,
         safe_mode=True,
         embedder_models=("hash-minilm",),
     )

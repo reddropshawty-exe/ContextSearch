@@ -1,0 +1,138 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+package "domain.entities" {
+  class Document
+  class Chunk
+  class Query
+  class RetrievalResult
+  class EmbeddingSpec
+}
+
+package "domain.interfaces" {
+  interface TextExtractor
+  interface ChunkSplitter
+  interface Embedder
+  interface EmbeddingStore
+  interface DocumentRepository
+  interface ChunkRepository
+  interface EmbeddingSpecRepository
+  interface EmbeddingRecordRepository
+  interface QueryRewriter
+  interface Reranker
+}
+
+package "application.use_cases" {
+  class ingest_documents <<function>>
+  class search <<function>>
+}
+
+package "application.evaluation" {
+  class EvaluationRunner
+  class ExperimentConfig
+  class ExperimentRun
+  class TestSuite
+  class TestCase
+  class CaseRunResult
+}
+
+package "infrastructure.config" {
+  class Container
+  class ContainerConfig
+  class build_default_container <<factory>>
+}
+
+package "infrastructure.implementations" {
+  class PdfExtractor
+  class DocxExtractor
+  class HtmlExtractor
+  class PlainTextExtractor
+
+  class FixedWindowSplitter
+
+  class MiniLMEmbedder
+  class MeanWordHashEmbedder
+  class CharacterNgramEmbedder
+  class SentenceTransformersEmbedder
+
+  class InMemoryEmbeddingStore
+  class SqliteEmbeddingStore
+  class HnswEmbeddingStore
+
+  class SqliteDocumentRepository
+  class SqliteChunkRepository
+  class SqliteEmbeddingSpecRepository
+  class SqliteEmbeddingRecordRepository
+  class SqliteEvaluationRepository
+
+  class SimpleQueryRewriter
+  class LLMQueryRewriter
+  class SimpleReranker
+}
+
+Container o-- TextExtractor
+Container o-- ChunkSplitter
+Container o-- Embedder
+Container o-- EmbeddingStore
+Container o-- DocumentRepository
+Container o-- ChunkRepository
+Container o-- EmbeddingSpecRepository
+Container o-- EmbeddingRecordRepository
+Container o-- QueryRewriter
+Container o-- Reranker
+Container o-- EmbeddingSpec
+
+build_default_container ..> Container
+build_default_container ..> ContainerConfig
+
+ingest_documents ..> TextExtractor
+ingest_documents ..> ChunkSplitter
+ingest_documents ..> Embedder
+ingest_documents ..> EmbeddingStore
+ingest_documents ..> DocumentRepository
+ingest_documents ..> ChunkRepository
+ingest_documents ..> EmbeddingSpec
+
+search ..> QueryRewriter
+search ..> Embedder
+search ..> EmbeddingStore
+search ..> EmbeddingRecordRepository
+search ..> DocumentRepository
+search ..> ChunkRepository
+search ..> Reranker
+search ..> RetrievalResult
+
+EvaluationRunner ..> search
+EvaluationRunner ..> ExperimentConfig
+EvaluationRunner ..> ExperimentRun
+EvaluationRunner ..> TestSuite
+EvaluationRunner ..> CaseRunResult
+SqliteEvaluationRepository ..> ExperimentRun
+
+TextExtractor <|.. PdfExtractor
+TextExtractor <|.. DocxExtractor
+TextExtractor <|.. HtmlExtractor
+TextExtractor <|.. PlainTextExtractor
+
+ChunkSplitter <|.. FixedWindowSplitter
+
+Embedder <|.. MiniLMEmbedder
+Embedder <|.. MeanWordHashEmbedder
+Embedder <|.. CharacterNgramEmbedder
+Embedder <|.. SentenceTransformersEmbedder
+
+EmbeddingStore <|.. InMemoryEmbeddingStore
+EmbeddingStore <|.. SqliteEmbeddingStore
+EmbeddingStore <|.. HnswEmbeddingStore
+
+DocumentRepository <|.. SqliteDocumentRepository
+ChunkRepository <|.. SqliteChunkRepository
+EmbeddingSpecRepository <|.. SqliteEmbeddingSpecRepository
+EmbeddingRecordRepository <|.. SqliteEmbeddingRecordRepository
+
+QueryRewriter <|.. SimpleQueryRewriter
+QueryRewriter <|.. LLMQueryRewriter
+Reranker <|.. SimpleReranker
+@enduml
