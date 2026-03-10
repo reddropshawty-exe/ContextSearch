@@ -4,17 +4,23 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from transformers import pipeline
-
 from domain.entities import Query
 from domain.interfaces import QueryRewriter
 
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_PROMPT_TEMPLATE = (
+    "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. "
+    "Верни каждый вариант с новой строки без нумерации.\\n\\n"
+    "Запрос: {query}"
+)
+
+
 @dataclass(slots=True)
 class LLMRewriterConfig:
-    model: str = "google/flan-t5-small"
+    model: str = "cointegrated/rut5-base-paraphraser"
+    prompt_template: str = DEFAULT_PROMPT_TEMPLATE
     max_queries: int = 3
     max_query_length: int = 256
     max_new_tokens: int = 64
@@ -25,9 +31,11 @@ class LLMQueryRewriter(QueryRewriter):
 
     def __init__(self, config: LLMRewriterConfig) -> None:
         self._config = config
-        self._pipeline = pipeline("text2text-generation", model=config.model)
+        self._pipeline = None
 
     def rewrite(self, query: Query) -> list[Query]:
+        if not self._ensure_pipeline():
+            return [query]
         try:
             raw = self._request_rewrites(query.text)
         except Exception:  # pragma: no cover - делаем лучшее возможное
@@ -39,14 +47,29 @@ class LLMQueryRewriter(QueryRewriter):
             return [query]
         return [Query(text=text) for text in candidates]
 
+    def _ensure_pipeline(self) -> bool:
+        if self._pipeline is not None:
+            return True
+        try:
+            from transformers import pipeline
+
+            self._pipeline = pipeline("text2text-generation", model=self._config.model)
+            return True
+        except Exception:
+            logger.exception("Не удалось загрузить LLM rewriter model: %s", self._config.model)
+            return False
+
     def _request_rewrites(self, text: str) -> str:
-        prompt = (
-            "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. "
-            "Верни каждый вариант с новой строки без нумерации.\n\n"
-            "Запрос: {query}"
-        ).format(count=self._config.max_queries, query=text)
+        prompt = self._build_prompt(text)
         outputs = self._pipeline(prompt, max_new_tokens=self._config.max_new_tokens, do_sample=False)
         return outputs[0]["generated_text"]
+
+    def _build_prompt(self, text: str) -> str:
+        try:
+            return self._config.prompt_template.format(count=self._config.max_queries, query=text)
+        except Exception:
+            logger.warning("Некорректный prompt_template для LLM rewriter, используем шаблон по умолчанию.")
+            return DEFAULT_PROMPT_TEMPLATE.format(count=self._config.max_queries, query=text)
 
     def _parse_candidates(self, raw: str) -> list[str]:
         cleaned = raw.strip()
@@ -64,4 +87,4 @@ class LLMQueryRewriter(QueryRewriter):
         return normalized[: self._config.max_queries]
 
 
-__all__ = ["LLMQueryRewriter", "LLMRewriterConfig"]
+__all__ = ["LLMQueryRewriter", "LLMRewriterConfig", "DEFAULT_PROMPT_TEMPLATE"]

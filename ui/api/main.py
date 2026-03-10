@@ -14,6 +14,8 @@ from application.evaluation.service import (
 )
 from domain.entities import Document
 from infrastructure.config import build_default_container
+from infrastructure.query.llm_rewriter import LLMQueryRewriter, LLMRewriterConfig
+from infrastructure.query.simple_rewriter import SimpleQueryRewriter
 from ui.logging_utils import setup_logging
 
 setup_logging()
@@ -97,7 +99,20 @@ def search_endpoint(
     top_k: int = FastAPIQuery(5, ge=1, le=100),
     vector_weight: float = FastAPIQuery(1.0, ge=0.0),
     bm25_weight: float = FastAPIQuery(1.0, ge=0.0),
+    use_llm_rewriter: bool = FastAPIQuery(False),
+    rewriter_model: str = FastAPIQuery("cointegrated/rut5-base-paraphraser"),
+    rewriter_prompt: str = FastAPIQuery(
+        "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}"
+    ),
 ) -> SearchResponse:
+    query_rewriter = container.query_rewriter
+    if use_llm_rewriter:
+        query_rewriter = LLMQueryRewriter(
+            LLMRewriterConfig(model=rewriter_model, prompt_template=rewriter_prompt)
+        )
+    elif container.query_rewriter.__class__.__name__ != "SimpleQueryRewriter":
+        query_rewriter = SimpleQueryRewriter()
+
     results = search(
         q,
         embedders=container.embedders,
@@ -107,7 +122,7 @@ def search_endpoint(
         embedding_record_repository=container.embedding_record_repository,
         embedding_specs=container.embedding_specs,
         bm25_index=container.bm25_index,
-        query_rewriter=container.query_rewriter,
+        query_rewriter=query_rewriter,
         reranker=container.reranker,
         top_k=top_k,
         ranking_mode=ranking_mode,

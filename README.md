@@ -166,6 +166,12 @@ CONTEXTSEARCH_MODELS_DIR=models streamlit run ui/web/app.py
 Дополнительно на итоговый `score` влияет `document.metadata["rank_weight"]`
 (по умолчанию `1.0`).
 
+Для LLM-переписывания запроса можно указать свою локальную модель и prompt-шаблон
+(с плейсхолдерами `{query}` и `{count}`):
+- в Tkinter: поля `LLM модель` и `Prompt rewrite`;
+- в Streamlit: `LLM модель rewrite` и `Prompt для rewrite`;
+- в API `/search`: параметры `use_llm_rewriter`, `rewriter_model`, `rewriter_prompt`.
+
 ## Retrieval evaluation
 
 - Requirements: `docs/retrieval_evaluation_requirements.md`

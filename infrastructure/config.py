@@ -97,7 +97,8 @@ class ContainerConfig:
     device: str = "cpu"
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
-    local_rewriter_model: str = "google/flan-t5-small"
+    local_rewriter_model: str = "cointegrated/rut5-base-paraphraser"
+    local_rewriter_prompt: str = "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}"
     models_dir: str | None = None
     safe_mode: bool = False
     embedder_models: tuple[EmbedderName, ...] = ("all-minilm",)
@@ -222,11 +223,16 @@ def _build_embedding_store(
 
 def _build_rewriter(config: ContainerConfig) -> QueryRewriter:
     if config.rewriter == "llm":
-        return LLMQueryRewriter(
-            LLMRewriterConfig(
-                model=_resolve_model_reference(config.local_rewriter_model, config),
+        try:
+            return LLMQueryRewriter(
+                LLMRewriterConfig(
+                    model=_resolve_model_reference(config.local_rewriter_model, config),
+                    prompt_template=config.local_rewriter_prompt,
+                )
             )
-        )
+        except Exception:
+            logger.exception("Не удалось инициализировать LLM rewriter, используем simple rewriter.")
+            return SimpleQueryRewriter()
     return SimpleQueryRewriter()
 
 
@@ -257,6 +263,7 @@ def _apply_safe_mode(config: ContainerConfig) -> ContainerConfig:
         normalize_embeddings=config.normalize_embeddings,
         embeddinggemma_model=config.embeddinggemma_model,
         local_rewriter_model=config.local_rewriter_model,
+        local_rewriter_prompt=config.local_rewriter_prompt,
         models_dir=config.models_dir,
         safe_mode=True,
         embedder_models=("hash-minilm",),

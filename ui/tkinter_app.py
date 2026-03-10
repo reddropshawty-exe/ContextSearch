@@ -89,12 +89,14 @@ class ContextSearchApp:
         self.storage_var = StringVar(value=self._default_storage())
         self.rank_mode_var = StringVar(value="rrf")
         self.top_k_var = StringVar(value="10")
+        self.rewriter_model_var = StringVar(value="cointegrated/rut5-base-paraphraser")
+        self.rewriter_prompt_var = StringVar(value="Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}")
 
         self.status_var = StringVar(value="Готово")
         self.selected_docs_var = StringVar(value="0 документов выбрано")
         self.config_count_var = StringVar(value="0 документов проиндексировано")
 
-        self._container_cache: tuple[tuple[str, str, str], object] | None = None
+        self._container_cache: tuple[tuple[str, ...], object] | None = None
         self._documents_cache: list[Document] = []
         self._selected_paths: list[Path] = []
         self._search_results_cache: list[RetrievalResult] = []
@@ -207,7 +209,31 @@ class ContextSearchApp:
             width=30,
             variant="ghost",
         )
-        self._llm_btn.pack(anchor="w", padx=16, pady=3)
+        model_row = Frame(zone, bg=PALETTE["panel_bg"])
+        model_row.pack(anchor="w", padx=16, pady=(4, 2), fill=X)
+        Label(model_row, text="LLM модель", bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=(0, 8))
+        Entry(
+            model_row,
+            textvariable=self.rewriter_model_var,
+            width=44,
+            bg=PALETTE["input_bg"],
+            fg=PALETTE["input_text"],
+            relief="flat",
+            font=FONTS["small"],
+        ).pack(side=LEFT, fill=X, expand=True)
+
+        prompt_row = Frame(zone, bg=PALETTE["panel_bg"])
+        prompt_row.pack(anchor="w", padx=16, pady=(2, 4), fill=X)
+        Label(prompt_row, text="Prompt rewrite", bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=(0, 8))
+        Entry(
+            prompt_row,
+            textvariable=self.rewriter_prompt_var,
+            width=72,
+            bg=PALETTE["input_bg"],
+            fg=PALETTE["input_text"],
+            relief="flat",
+            font=FONTS["small"],
+        ).pack(side=LEFT, fill=X, expand=True)
 
         rank_row = Frame(zone, bg=PALETTE["panel_bg"])
         rank_row.pack(anchor="w", padx=16, pady=6)
@@ -346,8 +372,16 @@ class ContextSearchApp:
             rewriter="llm" if self.llm_rewrite_var.get() else "simple",
             embedding_store=self.storage_var.get(),
             data_root=DATA_ROOT,
+            local_rewriter_model=self.rewriter_model_var.get().strip() or "cointegrated/rut5-base-paraphraser",
+            local_rewriter_prompt=self.rewriter_prompt_var.get().strip() or "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}",
         )
-        cache_key = (config.embedder, config.embedding_store, config.rewriter)
+        cache_key = (
+            config.embedder,
+            config.embedding_store,
+            config.rewriter,
+            config.local_rewriter_model,
+            config.local_rewriter_prompt,
+        )
         if self._container_cache and self._container_cache[0] == cache_key:
             return self._container_cache[1]
 
