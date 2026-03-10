@@ -100,6 +100,7 @@ class ContextSearchApp:
         self._documents_cache: list[Document] = []
         self._selected_paths: list[Path] = []
         self._search_results_cache: list[RetrievalResult] = []
+        self._last_rewrite_trace: str = ""
 
         self._build_layout()
         self.refresh_documents()
@@ -202,38 +203,23 @@ class ContextSearchApp:
             variant="ghost",
         )
         self._bm25_btn.pack(anchor="w", padx=16, pady=3)
+        llm_row = Frame(zone, bg=PALETTE["panel_bg"])
+        llm_row.pack(anchor="w", padx=16, pady=(3, 4), fill=X)
         self._llm_btn = self._make_button(
-            zone,
+            llm_row,
             text="☐ LLM улучшение запроса",
             command=self._toggle_llm,
             width=30,
             variant="ghost",
         )
-        model_row = Frame(zone, bg=PALETTE["panel_bg"])
-        model_row.pack(anchor="w", padx=16, pady=(4, 2), fill=X)
-        Label(model_row, text="LLM модель", bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=(0, 8))
-        Entry(
-            model_row,
-            textvariable=self.rewriter_model_var,
-            width=44,
-            bg=PALETTE["input_bg"],
-            fg=PALETTE["input_text"],
-            relief="flat",
-            font=FONTS["small"],
-        ).pack(side=LEFT, fill=X, expand=True)
-
-        prompt_row = Frame(zone, bg=PALETTE["panel_bg"])
-        prompt_row.pack(anchor="w", padx=16, pady=(2, 4), fill=X)
-        Label(prompt_row, text="Prompt rewrite", bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=(0, 8))
-        Entry(
-            prompt_row,
-            textvariable=self.rewriter_prompt_var,
-            width=72,
-            bg=PALETTE["input_bg"],
-            fg=PALETTE["input_text"],
-            relief="flat",
-            font=FONTS["small"],
-        ).pack(side=LEFT, fill=X, expand=True)
+        self._llm_btn.pack(side=LEFT)
+        self._make_button(
+            llm_row,
+            text="Настроить",
+            command=self._open_llm_settings_modal,
+            width=12,
+            variant="secondary",
+        ).pack(side=LEFT, padx=8)
 
         rank_row = Frame(zone, bg=PALETTE["panel_bg"])
         rank_row.pack(anchor="w", padx=16, pady=6)
@@ -333,6 +319,41 @@ class ContextSearchApp:
         if not self.query_var.get().strip():
             self.query_var.set("Какой документ вы ищете?..")
             self._sync_search_button_state()
+
+    def _open_llm_settings_modal(self) -> None:
+        modal = Toplevel(self.root)
+        modal.title("Настройка LLM rewrite")
+        modal.transient(self.root)
+        modal.grab_set()
+        modal.geometry("760x260")
+        modal.configure(bg=PALETTE["modal_bg"])
+
+        Label(modal, text="LLM-модель", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(anchor="w", padx=10, pady=(10, 2))
+        model_entry = Entry(
+            modal,
+            textvariable=self.rewriter_model_var,
+            bg=PALETTE["input_bg"],
+            fg=PALETTE["input_text"],
+            relief="flat",
+            font=FONTS["small"],
+        )
+        model_entry.pack(fill=X, padx=10, pady=(0, 8))
+
+        Label(modal, text="Prompt rewrite ({query}, {count})", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["body"]).pack(anchor="w", padx=10, pady=(0, 2))
+        prompt_entry = Entry(
+            modal,
+            textvariable=self.rewriter_prompt_var,
+            bg=PALETTE["input_bg"],
+            fg=PALETTE["input_text"],
+            relief="flat",
+            font=FONTS["small"],
+        )
+        prompt_entry.pack(fill=X, padx=10, pady=(0, 10))
+
+        buttons = Frame(modal, bg=PALETTE["modal_bg"])
+        buttons.pack(fill=X, padx=10, pady=8)
+        self._make_button(buttons, text="Сохранить", command=modal.destroy, variant="success").pack(side=LEFT)
+        self._make_button(buttons, text="Закрыть", command=modal.destroy, variant="secondary").pack(side=LEFT, padx=8)
 
     def _toggle_bm25(self) -> None:
         self.bm25_var.set(not self.bm25_var.get())
@@ -546,6 +567,14 @@ class ContextSearchApp:
                 use_bm25=self.bm25_var.get() or self.rank_mode_var.get() in {"bm25", "rrf", "combsum", "combmnz"},
                 ranking_mode=self.rank_mode_var.get(),
             )
+            rewritten = []
+            if self._search_results_cache:
+                rewritten = list(self._search_results_cache[0].metadata.get("rewritten_queries", []))
+            if rewritten:
+                self._last_rewrite_trace = f"{query} -> " + " | ".join(rewritten)
+            else:
+                self._last_rewrite_trace = f"{query} -> {query}"
+            self.status_var.set(f"Поиск выполнен. {self._last_rewrite_trace}")
         finally:
             progress.destroy()
 
@@ -561,6 +590,8 @@ class ContextSearchApp:
 
         self._make_button(modal, text="✕", command=modal.destroy, variant="danger", width=3).pack(anchor="ne", padx=6, pady=6)
         Label(modal, text="Итоги поиска", font=FONTS["title"], bg=PALETTE["modal_bg"], fg=PALETTE["text"]).pack(pady=4)
+        if self._last_rewrite_trace:
+            Label(modal, text=f"Rewrite: {self._last_rewrite_trace}", bg=PALETTE["modal_bg"], fg=PALETTE["muted_text"], font=FONTS["small"], wraplength=930, justify=LEFT).pack(padx=10, pady=(0, 6), anchor="w")
 
         listbox = Listbox(
             modal,

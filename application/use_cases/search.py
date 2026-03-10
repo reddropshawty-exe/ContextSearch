@@ -59,7 +59,8 @@ def search(
     query = Query(text=query_text)
     expanded_queries: Iterable[Query] = query_rewriter.rewrite(query) or [query]
     expanded_queries = list(expanded_queries)
-    logger.info("Переписанные запросы: %s", [q.text for q in expanded_queries])
+    rewritten_texts = [q.text for q in expanded_queries]
+    logger.info("Rewrite trace: original=%r -> rewritten=%s", query_text, rewritten_texts)
 
     doc_specs = [spec for spec in embedding_specs if spec.level == "document"]
     chunk_specs = [spec for spec in embedding_specs if spec.level == "chunk"]
@@ -84,7 +85,7 @@ def search(
             ann_results = embedding_store.search(spec, query_embedding, top_k=max(top_k * 3, 20))
             ann_ids = [ann_id for ann_id, _ in ann_results]
             object_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
-            logger.info("Документный поиск: spec=%s, запрос='%s', ann_ids=%s", spec.id, rewritten.text, ann_ids)
+            logger.info("Документный поиск: spec=%s, rewritten_query=%r, hits=%d", spec.id, rewritten.text, len(ann_ids))
             for (ann_id, score), doc_id in zip(ann_results, object_ids):
                 logger.debug("Сравнение документа: doc_id=%s, ann_id=%s, score=%.4f", doc_id, ann_id, score)
                 vector_doc_scores[doc_id] = max(vector_doc_scores.get(doc_id, 0.0), score)
@@ -96,7 +97,7 @@ def search(
             ann_results = embedding_store.search(spec, query_embedding, top_k=max(top_k * 8, 50))
             ann_ids = [ann_id for ann_id, _ in ann_results]
             chunk_ids = embedding_record_repository.find_object_ids(spec.id, ann_ids)
-            logger.info("Чанковый поиск: spec=%s, запрос='%s', ann_ids=%s", spec.id, rewritten.text, ann_ids)
+            logger.info("Чанковый поиск: spec=%s, rewritten_query=%r, hits=%d", spec.id, rewritten.text, len(ann_ids))
             for (ann_id, score), chunk_id in zip(ann_results, chunk_ids):
                 chunk = chunk_repository.get(chunk_id)
                 if chunk is None:
@@ -155,6 +156,8 @@ def search(
                 "vector_weight": vector_weight,
                 "bm25_weight": bm25_weight,
                 "ranking_mode": ranking_mode,
+                "original_query": query_text,
+                "rewritten_queries": rewritten_texts,
             },
         )
         results.append(result)

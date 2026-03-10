@@ -41,11 +41,16 @@ top_k = st.number_input("Количество документов (k)", min_val
 vector_weight = st.number_input("Вес vector", min_value=0.0, max_value=10.0, value=1.0, step=0.1)
 bm25_weight = st.number_input("Вес BM25", min_value=0.0, max_value=10.0, value=1.0, step=0.1)
 use_llm_rewriter = st.checkbox("LLM переписывание запроса", value=False)
-rewriter_model = st.text_input("LLM модель rewrite", value="cointegrated/rut5-base-paraphraser")
-rewriter_prompt = st.text_input(
-    "Prompt для rewrite",
-    value="Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}",
-)
+if "show_rewriter_settings" not in st.session_state:
+    st.session_state["show_rewriter_settings"] = False
+if st.button("Настроить LLM"):
+    st.session_state["show_rewriter_settings"] = not st.session_state["show_rewriter_settings"]
+
+rewriter_model = "cointegrated/rut5-base-paraphraser"
+rewriter_prompt = "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}"
+if st.session_state["show_rewriter_settings"]:
+    rewriter_model = st.text_input("LLM модель rewrite", value=rewriter_model)
+    rewriter_prompt = st.text_input("Prompt для rewrite", value=rewriter_prompt)
 
 if st.button("Найти"):
     query_rewriter = SimpleQueryRewriter()
@@ -70,6 +75,12 @@ if st.button("Найти"):
         vector_weight=float(vector_weight),
         bm25_weight=float(bm25_weight),
     )
+    rewritten_trace = []
+    if results:
+        rewritten_trace = results[0].metadata.get("rewritten_queries", [])
+    if rewritten_trace:
+        st.caption("Rewrite: " + " | ".join(rewritten_trace))
+
     for result in results:
         chunk_score = result.metadata.get("chunk_score", result.score)
         document_score = result.metadata.get("document_vector_score")

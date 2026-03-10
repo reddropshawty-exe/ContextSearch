@@ -43,6 +43,7 @@ class LLMQueryRewriter(QueryRewriter):
             return [query]
 
         candidates = self._parse_candidates(raw)
+        logger.info("LLM rewrite: model=%s, source=%r, generated=%s", self._config.model, query.text, candidates)
         if not candidates:
             return [query]
         return [Query(text=text) for text in candidates]
@@ -61,6 +62,7 @@ class LLMQueryRewriter(QueryRewriter):
 
     def _request_rewrites(self, text: str) -> str:
         prompt = self._build_prompt(text)
+        logger.debug("LLM rewrite prompt: %s", prompt)
         outputs = self._pipeline(prompt, max_new_tokens=self._config.max_new_tokens, do_sample=False)
         return outputs[0]["generated_text"]
 

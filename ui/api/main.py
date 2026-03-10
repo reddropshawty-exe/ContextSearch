@@ -138,6 +138,8 @@ def search_endpoint(
             "document_score": result.metadata.get("document_vector_score"),
             "bm25_score": result.metadata.get("bm25_score"),
             "text": result.chunk.text if result.chunk else None,
+            "original_query": result.metadata.get("original_query"),
+            "rewritten_queries": result.metadata.get("rewritten_queries", []),
         }
         for result in results
     ]
