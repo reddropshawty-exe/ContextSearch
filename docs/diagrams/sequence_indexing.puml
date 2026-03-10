@@ -1,0 +1,69 @@
+@startuml
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam BoxPadding 10
+
+actor User
+participant "UI/API" as UI
+participant "ingest_documents" as UC
+participant "TextExtractor" as EX
+participant "ChunkSplitter" as SP
+participant "DocumentRepository" as DR
+participant "ChunkRepository" as CR
+participant "Embedder" as EMB
+participant "EmbeddingStore" as ES
+participant "BM25Index" as BM25
+
+== Общий пайплайн индексации ==
+User -> UI: Выбрать файлы / отправить ingest-запрос
+UI -> UC: ingest_documents(sources, dependencies)
+loop Для каждого source
+  UC -> EX: extract(source)
+  EX --> UC: text
+  UC -> DR: add(Document)
+  UC -> SP: split(Document)
+  SP --> UC: chunks
+  UC -> CR: add(chunk) (для каждого chunk)
+
+  group Индексация эмбеддингов по embedding_specs
+    alt spec.level == "document"
+      UC -> EMB: embed_texts([document.content])
+      EMB --> UC: doc_embedding
+      UC -> ES: add(spec, "document", [document.id], [embedding])
+    else spec.level == "chunk"
+      UC -> EMB: embed_texts(chunk_texts)
+      EMB --> UC: chunk_embeddings
+      UC -> ES: add(spec, "chunk", chunk_ids, embeddings)
+    end
+  end
+end
+UC -> BM25: update_documents(document_repository.list())
+UC --> UI: list[Document]
+UI --> User: Индексация завершена
+
+newpage
+== Детализация: варианты эмбеддинга ==
+participant "SentenceTransformersEmbedder" as ST
+participant "HashEmbedders\n(MiniLM/MeanWord/CharNgram)" as HASH
+
+note over UC
+Выбор реализации зависит от ContainerConfig.embedder_models
+и embedding_specs (model_name + level).
+end note
+
+alt Реальная модель (all-minilm/all-mpnet/e5/embedding-gemma)
+  UC -> ST: embed_texts(...)
+  ST --> UC: dense vectors
+else Safe mode / легковесные модели
+  UC -> HASH: embed_texts(...)
+  HASH --> UC: deterministic hash vectors
+end
+
+note over UC,ES
+EmbeddingStore может быть:
+- InMemoryEmbeddingStore
+- SqliteEmbeddingStore
+- HnswEmbeddingStore
+(endpoints add/search одинаковые)
+end note
+@enduml

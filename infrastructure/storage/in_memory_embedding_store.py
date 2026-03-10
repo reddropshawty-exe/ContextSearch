@@ -1,33 +1,55 @@
-"""In-memory embedding store for demos."""
+"""Хранилище эмбеддингов в памяти для демо."""
 from __future__ import annotations
 
 import heapq
 from typing import Sequence
 
-from domain.entities import Chunk, RetrievalResult
-from domain.interfaces import EmbeddingStore
+from domain.entities import EmbeddingSpec
+from domain.interfaces import EmbeddingRecordRepository, EmbeddingStore
 
 
 class InMemoryEmbeddingStore(EmbeddingStore):
-    """Stores embeddings in Python lists and performs brute-force search."""
+    """Хранит эмбеддинги в списках Python и ищет перебором."""
 
-    def __init__(self) -> None:
-        self._entries: list[tuple[Chunk, list[float]]] = []
+    def __init__(self, record_repository: EmbeddingRecordRepository | None = None) -> None:
+        self._entries: dict[str, list[tuple[int, str, list[float]]]] = {}
+        self._next_id: dict[str, int] = {}
+        self._record_repository = record_repository
 
-    def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
-        for chunk, embedding in zip(chunks, embeddings):
-            self._entries.append((chunk, list(embedding)))
+    def add(
+        self,
+        spec: EmbeddingSpec,
+        object_type: str,
+        object_ids: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+    ) -> None:
+        spec_entries = self._entries.setdefault(spec.id, [])
+        next_id = self._next_id.setdefault(spec.id, 0)
+        for object_id, embedding in zip(object_ids, embeddings):
+            spec_entries.append((next_id, object_id, list(embedding)))
+            next_id += 1
+        self._next_id[spec.id] = next_id
+        if self._record_repository:
+            self._record_repository.add_records(spec.id, object_type, object_ids, list(range(next_id - len(object_ids), next_id)))
 
-    def search(self, query_embedding: Sequence[float], top_k: int = 5) -> list[RetrievalResult]:
-        scored: list[tuple[float, Chunk]] = []
-        for chunk, embedding in self._entries:
+    def search(
+        self,
+        spec: EmbeddingSpec,
+        query_embedding: Sequence[float],
+        top_k: int = 5,
+    ) -> list[tuple[int, float]]:
+        scored: list[tuple[float, int]] = []
+        for ann_id, _object_id, embedding in self._entries.get(spec.id, []):
             score = self._cosine_similarity(query_embedding, embedding)
-            heapq.heappush(scored, (score, chunk))
+            heapq.heappush(scored, (score, ann_id))
             if len(scored) > top_k:
                 heapq.heappop(scored)
 
         sorted_results = sorted(scored, key=lambda item: item[0], reverse=True)
-        return [RetrievalResult(chunk=chunk, score=score) for score, chunk in sorted_results]
+        return [(ann_id, score) for score, ann_id in sorted_results]
+
+    def has_entries(self, spec_id: str) -> bool:
+        return bool(self._entries.get(spec_id))
 
     @staticmethod
     def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:

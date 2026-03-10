@@ -1,4 +1,4 @@
-"""Basic query rewriter that keeps the original query."""
+"""Базовый переписыватель запроса, возвращающий исходный запрос."""
 from __future__ import annotations
 
 from domain.entities import Query
@@ -6,9 +6,9 @@ from domain.interfaces import QueryRewriter
 
 
 class SimpleQueryRewriter(QueryRewriter):
-    """Return the original query without modifications."""
+    """Возвращает исходный запрос без изменений."""
 
-    def rewrite(self, query: Query) -> list[Query]:  # pragma: no cover - trivial
+    def rewrite(self, query: Query) -> list[Query]:  # pragma: no cover - тривиально
         return [query]
 
 
