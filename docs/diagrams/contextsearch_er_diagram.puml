@@ -1,0 +1,125 @@
+@startuml
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+' ==========================
+' Core retrieval persistence
+' ==========================
+entity "documents" as documents {
+  * id : TEXT <<PK>>
+  --
+  path : TEXT
+  title : TEXT
+  mime_type : TEXT
+  content : TEXT
+  content_hash : TEXT
+  modified_at : TEXT
+  metadata : TEXT
+}
+
+entity "chunks" as chunks {
+  * id : TEXT <<PK>>
+  --
+  document_id : TEXT <<FK documents.id>>
+  text : TEXT
+  start_offset : INTEGER
+  end_offset : INTEGER
+  text_hash : TEXT
+  metadata : TEXT
+}
+
+entity "embedding_specs" as embedding_specs {
+  * id : TEXT <<PK>>
+  --
+  model_name : TEXT
+  dimension : INTEGER
+  metric : TEXT
+  normalize : INTEGER
+  level : TEXT
+  params : TEXT
+}
+
+entity "embedding_records" as embedding_records {
+  * spec_id : TEXT <<FK embedding_specs.id>>
+  * object_type : TEXT
+  * ann_id : INTEGER
+  --
+  object_id : TEXT
+}
+
+documents ||--o{ chunks : "1 документ -> N чанков"
+embedding_specs ||--o{ embedding_records : "1 spec -> N ANN записей"
+
+note right of embedding_records
+object_type = "document" | "chunk"
+object_id ссылается на documents.id или chunks.id
+end note
+
+' ==========================
+' Evaluation subsystem schema
+' ==========================
+entity "eval_test_suites" as eval_test_suites {
+  * id : TEXT <<PK>>
+  --
+  name : TEXT
+  description : TEXT
+  document_ids : JSON
+  metadata : JSON
+}
+
+entity "eval_test_cases" as eval_test_cases {
+  * id : TEXT <<PK>>
+  --
+  suite_id : TEXT <<FK eval_test_suites.id>>
+  query_text : TEXT
+  source : TEXT
+  relevance_labels : JSON
+  metadata : JSON
+}
+
+entity "eval_experiment_configs" as eval_experiment_configs {
+  * id : TEXT <<PK>>
+  --
+  embedding_spec_id : TEXT
+  store_type : TEXT
+  use_bm25 : INTEGER
+  ranking_mode : TEXT
+  query_rewriter : TEXT
+  top_k : INTEGER
+  rrf_k : INTEGER
+  metadata : JSON
+}
+
+entity "eval_experiment_runs" as eval_experiment_runs {
+  * id : TEXT <<PK>>
+  --
+  suite_id : TEXT <<FK eval_test_suites.id>>
+  config_id : TEXT <<FK eval_experiment_configs.id>>
+  created_at : TEXT
+  aggregate_metrics : JSON
+}
+
+entity "eval_case_results" as eval_case_results {
+  * run_id : TEXT <<FK eval_experiment_runs.id>>
+  * case_id : TEXT
+  --
+  ranked_document_ids : JSON
+  ranked_chunk_ids : JSON
+  scores : JSON
+  score_breakdown : JSON
+  metrics : JSON
+}
+
+eval_test_suites ||--o{ eval_test_cases : contains
+eval_test_suites ||--o{ eval_experiment_runs : benchmark_on
+eval_experiment_configs ||--o{ eval_experiment_runs : applied_in
+eval_experiment_runs ||--o{ eval_case_results : contains
+
+note bottom of eval_experiment_configs
+embedding_spec_id должен ссылаться
+на embedding_specs.id логически
+(в SQLite FK не задан явно)
+end note
+@enduml
