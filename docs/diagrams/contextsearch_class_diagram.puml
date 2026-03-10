@@ -1,91 +1,196 @@
 @startuml
-hide empty members
 skinparam classAttributeIconSize 0
 skinparam packageStyle rectangle
+hide empty members
 
+' ============================================================
+' 1) Domain layer: сущности и контракты
+' ============================================================
 package "domain.entities" {
-  class Document
-  class Chunk
-  class Query
-  class RetrievalResult
-  class EmbeddingSpec
+  class Document {
+    +id: str
+    +path: str?
+    +title: str?
+    +mime_type: str?
+    +content: str
+    +content_hash: str?
+    +modified_at: datetime?
+    +metadata: dict
+  }
+
+  class Chunk {
+    +id: str
+    +document_id: str
+    +text: str
+    +start: int?
+    +end: int?
+    +text_hash: str?
+    +metadata: dict
+  }
+
+  class Query {
+    +text: str
+    +metadata: dict
+  }
+
+  class RetrievalResult {
+    +document_id: str
+    +score: float
+    +chunk: Chunk?
+    +chunk_text_preview: str?
+    +document: Document?
+    +metadata: dict
+  }
+
+  class EmbeddingSpec {
+    +id: str
+    +model_name: str
+    +dimension: int
+    +metric: str
+    +normalize: bool
+    +level: str
+    +params: dict
+  }
 }
 
 package "domain.interfaces" {
-  interface TextExtractor
-  interface ChunkSplitter
-  interface Embedder
-  interface EmbeddingStore
-  interface DocumentRepository
-  interface ChunkRepository
-  interface EmbeddingSpecRepository
-  interface EmbeddingRecordRepository
-  interface QueryRewriter
-  interface Reranker
+  interface TextExtractor {
+    +extract(source: bytes|str): str
+  }
+
+  interface ChunkSplitter {
+    +split(document: Document): list<Chunk>
+  }
+
+  interface Embedder {
+    +model_id: str
+    +dimension: int
+    +embed_texts(texts: Sequence<str>): list<list<float>>
+    +embed_query(query: Query): list<float>
+  }
+
+  interface EmbeddingStore {
+    +add(spec: EmbeddingSpec, object_type: str, object_ids: Sequence<str>, embeddings: Sequence<Sequence<float>>): None
+    +search(spec: EmbeddingSpec, query_embedding: Sequence<float>, top_k: int = 5): list<tuple<int,float>>
+  }
+
+  interface DocumentRepository {
+    +add(document: Document): None
+    +list(): list<Document>
+    +get(document_id: str): Document?
+  }
+
+  interface ChunkRepository {
+    +add(chunk: Chunk): str
+    +list(): list<Chunk>
+    +get(chunk_id: str): Chunk?
+  }
+
+  interface EmbeddingSpecRepository {
+    +upsert(spec: EmbeddingSpec): None
+    +list(): list<EmbeddingSpec>
+    +get(spec_id: str): EmbeddingSpec?
+  }
+
+  interface EmbeddingRecordRepository {
+    +add_records(spec_id: str, object_type: str, object_ids: Sequence<str>, ann_ids: Sequence<int>): None
+    +find_object_ids(spec_id: str, ann_ids: Sequence<int>): list<str>
+    +list_object_ids(spec_id: str, object_type: str): list<str>
+  }
+
+  interface QueryRewriter {
+    +rewrite(query: Query): list<Query>
+  }
+
+  interface Reranker {
+    +rerank(query: Query, results: Iterable<RetrievalResult>): list<RetrievalResult>
+  }
 }
 
+Document "1" o-- "*" Chunk
+RetrievalResult o-- Query
+RetrievalResult o-- Chunk
+RetrievalResult o-- Document
+
+newpage
+' ============================================================
+' 2) Application layer: use-cases и evaluation
+' ============================================================
 package "application.use_cases" {
-  class ingest_documents <<function>>
-  class search <<function>>
+  class ingest_documents <<use-case>> {
+    +ingest_documents(sources, extractor, splitter, embedders, embedding_store, document_repository, chunk_repository, embedding_specs, bm25_index): list<Document>
+    -_index_embeddings(embedders, embedding_store, embedding_specs, document, chunks): None
+  }
+
+  class search <<use-case>> {
+    +search(query_text, embedders, embedding_store, document_repository, chunk_repository, embedding_record_repository, embedding_specs, query_rewriter, reranker, bm25_index, top_k, use_bm25, ranking_mode): list<RetrievalResult>
+    -_ensure_in_memory_index(...): None
+    -_rrf_scores(*rankings, k): dict<str,float>
+  }
 }
 
-package "application.evaluation" {
-  class EvaluationRunner
-  class ExperimentConfig
-  class ExperimentRun
-  class TestSuite
-  class TestCase
-  class CaseRunResult
+package "application.evaluation.models" {
+  class RelevanceLabel {
+    +document_id: str
+    +grade: int
+    +chunk_id: str?
+  }
+
+  class TestCase {
+    +id: str
+    +query_text: str
+    +source: str
+    +relevance_labels: list<RelevanceLabel>
+    +metadata: dict<str,str>
+  }
+
+  class TestSuite {
+    +id: str
+    +name: str
+    +description: str
+    +document_ids: list<str>
+    +test_cases: list<TestCase>
+  }
+
+  class ExperimentConfig {
+    +id: str
+    +embedding_spec_id: str
+    +store_type: str
+    +use_bm25: bool
+    +ranking_mode: str
+    +query_rewriter: str
+    +top_k: int
+    +rrf_k: int
+    +metadata: dict<str,str>
+  }
+
+  class CaseRunResult {
+    +test_case_id: str
+    +ranked_document_ids: list<str>
+    +ranked_chunk_ids: list<str>
+    +scores: list<float>
+    +score_breakdown: list<dict>
+    +metrics: dict<str,float>
+  }
+
+  class ExperimentRun {
+    +id: str
+    +test_suite_id: str
+    +experiment_config_id: str
+    +created_at: datetime
+    +case_results: list<CaseRunResult>
+    +aggregate_metrics: dict<str,float>
+  }
 }
 
-package "infrastructure.config" {
-  class Container
-  class ContainerConfig
-  class build_default_container <<factory>>
+package "application.evaluation.service" {
+  class EvaluationService <<module>> {
+    +create_test_suite(name, description): TestSuite
+    +create_test_case(query_text, relevant_document_ids, source, metadata, graded_relevance): TestCase
+    +create_experiment_config(...): ExperimentConfig
+    +run_and_save_experiment(suite, config, container, repository): ExperimentRun
+  }
 }
-
-package "infrastructure.implementations" {
-  class PdfExtractor
-  class DocxExtractor
-  class HtmlExtractor
-  class PlainTextExtractor
-
-  class FixedWindowSplitter
-
-  class MiniLMEmbedder
-  class MeanWordHashEmbedder
-  class CharacterNgramEmbedder
-  class SentenceTransformersEmbedder
-
-  class InMemoryEmbeddingStore
-  class SqliteEmbeddingStore
-  class HnswEmbeddingStore
-
-  class SqliteDocumentRepository
-  class SqliteChunkRepository
-  class SqliteEmbeddingSpecRepository
-  class SqliteEmbeddingRecordRepository
-  class SqliteEvaluationRepository
-
-  class SimpleQueryRewriter
-  class LLMQueryRewriter
-  class SimpleReranker
-}
-
-Container o-- TextExtractor
-Container o-- ChunkSplitter
-Container o-- Embedder
-Container o-- EmbeddingStore
-Container o-- DocumentRepository
-Container o-- ChunkRepository
-Container o-- EmbeddingSpecRepository
-Container o-- EmbeddingRecordRepository
-Container o-- QueryRewriter
-Container o-- Reranker
-Container o-- EmbeddingSpec
-
-build_default_container ..> Container
-build_default_container ..> ContainerConfig
 
 ingest_documents ..> TextExtractor
 ingest_documents ..> ChunkSplitter
@@ -95,21 +200,125 @@ ingest_documents ..> DocumentRepository
 ingest_documents ..> ChunkRepository
 ingest_documents ..> EmbeddingSpec
 
-search ..> QueryRewriter
 search ..> Embedder
 search ..> EmbeddingStore
 search ..> EmbeddingRecordRepository
 search ..> DocumentRepository
 search ..> ChunkRepository
+search ..> QueryRewriter
 search ..> Reranker
-search ..> RetrievalResult
 
-EvaluationRunner ..> search
-EvaluationRunner ..> ExperimentConfig
-EvaluationRunner ..> ExperimentRun
-EvaluationRunner ..> TestSuite
-EvaluationRunner ..> CaseRunResult
-SqliteEvaluationRepository ..> ExperimentRun
+TestSuite "1" o-- "*" TestCase
+TestCase "1" o-- "*" RelevanceLabel
+ExperimentRun "1" o-- "*" CaseRunResult
+EvaluationService ..> search
+
+newpage
+' ============================================================
+' 3) Infrastructure layer: реализации и DI-контейнер
+' ============================================================
+package "infrastructure.config" {
+  class ContainerConfig {
+    +extractor: ExtractorName
+    +embedder: EmbedderName
+    +rewriter: RewriterName
+    +embedding_store: EmbeddingStoreName
+    +profile: ProfileName
+    +data_root: str
+    +device: str
+    +normalize_embeddings: bool
+    +embeddinggemma_model: str
+    +local_rewriter_model: str
+    +models_dir: str?
+    +safe_mode: bool
+    +embedder_models: tuple<EmbedderName>
+  }
+
+  class Container {
+    +extractor: TextExtractor
+    +splitter: ChunkSplitter
+    +embedder: Embedder
+    +embedders: dict<EmbedderName, Embedder>
+    +embedding_store: EmbeddingStore
+    +document_repository: DocumentRepository
+    +chunk_repository: ChunkRepository
+    +embedding_spec_repository: EmbeddingSpecRepository
+    +embedding_record_repository: EmbeddingRecordRepository
+    +query_rewriter: QueryRewriter
+    +reranker: Reranker
+    +embedding_specs: list<EmbeddingSpec>
+    +bm25_index: BM25Index
+    +evaluation_repository: SqliteEvaluationRepository?
+  }
+
+  class ConfigFactory <<module>> {
+    +build_default_container(config: ContainerConfig?): Container
+    -_build_embedders(config): dict
+    -_build_embedding_store(config, record_repository, db_path, index_root): EmbeddingStore
+    -_build_rewriter(config): QueryRewriter
+  }
+}
+
+package "infrastructure.implementations" {
+  class PdfExtractor { +extract(source): str }
+  class DocxExtractor { +extract(source): str }
+  class HtmlExtractor { +extract(source): str }
+  class PlainTextExtractor { +extract(source): str }
+
+  class FixedWindowSplitter { +split(document): list<Chunk> }
+
+  class MiniLMEmbedder {
+    +model_id: str
+    +dimension: int
+    +embed_texts(texts): list<list<float>>
+    +embed_query(query): list<float>
+  }
+
+  class MeanWordHashEmbedder {
+    +model_id: str
+    +dimension: int
+    +embed_texts(texts): list<list<float>>
+    +embed_query(query): list<float>
+  }
+
+  class CharacterNgramEmbedder {
+    +model_id: str
+    +dimension: int
+    +embed_texts(texts): list<list<float>>
+    +embed_query(query): list<float>
+  }
+
+  class SentenceTransformersEmbedder {
+    +model_id: str
+    +dimension: int
+    +embed_texts(texts): list<list<float>>
+    +embed_query(query): list<float>
+  }
+
+  class InMemoryEmbeddingStore { +add(...): None +search(...): list +has_entries(spec_id): bool }
+  class SqliteEmbeddingStore { +add(...): None +search(...): list }
+  class HnswEmbeddingStore { +add(...): None +search(...): list }
+
+  class SqliteDocumentRepository { +add(document): None +list(): list<Document> +get(document_id): Document? }
+  class SqliteChunkRepository { +add(chunk): str +list(): list<Chunk> +get(chunk_id): Chunk? }
+  class SqliteEmbeddingSpecRepository { +upsert(spec): None +list(): list<EmbeddingSpec> +get(spec_id): EmbeddingSpec? }
+  class SqliteEmbeddingRecordRepository {
+    +add_records(spec_id, object_type, object_ids, ann_ids): None
+    +find_object_ids(spec_id, ann_ids): list<str>
+    +list_object_ids(spec_id, object_type): list<str>
+  }
+  class SqliteEvaluationRepository {
+    +upsert_suite(suite): None
+    +upsert_config(config): None
+    +save_run(run): None
+    +list_runs(): list<ExperimentRun>
+    +list_suites(): list<TestSuite>
+  }
+
+  class SimpleQueryRewriter { +rewrite(query): list<Query> }
+  class LLMQueryRewriter { +rewrite(query): list<Query> }
+  class SimpleReranker { +rerank(query, results): list<RetrievalResult> }
+}
 
 TextExtractor <|.. PdfExtractor
 TextExtractor <|.. DocxExtractor
@@ -135,4 +344,18 @@ EmbeddingRecordRepository <|.. SqliteEmbeddingRecordRepository
 QueryRewriter <|.. SimpleQueryRewriter
 QueryRewriter <|.. LLMQueryRewriter
 Reranker <|.. SimpleReranker
+
+ConfigFactory ..> ContainerConfig
+ConfigFactory ..> Container
+Container o-- TextExtractor
+Container o-- ChunkSplitter
+Container o-- Embedder
+Container o-- EmbeddingStore
+Container o-- DocumentRepository
+Container o-- ChunkRepository
+Container o-- EmbeddingSpecRepository
+Container o-- EmbeddingRecordRepository
+Container o-- QueryRewriter
+Container o-- Reranker
+Container o-- EmbeddingSpec
 @enduml

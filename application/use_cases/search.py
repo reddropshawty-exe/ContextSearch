@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Iterable
 
-from domain.entities import Chunk, EmbeddingSpec, Query, RetrievalResult
+from domain.entities import Chunk, Document, EmbeddingSpec, Query, RetrievalResult
 from domain.interfaces import (
     ChunkRepository,
     DocumentRepository,
@@ -44,10 +44,18 @@ def search(
     top_k: int = 5,
     use_bm25: bool = True,
     ranking_mode: str = "rrf",
+    vector_weight: float = 1.0,
+    bm25_weight: float = 1.0,
 ) -> list[RetrievalResult]:
     """Искать документы, релевантные заданному запросу."""
 
-    logger.info("Поиск: запрос='%s', ранжирование=%s, bm25=%s", query_text, ranking_mode, use_bm25)
+    logger.info(
+        "Поиск: запрос='%s', ранжирование=%s, bm25=%s, top_k=%s",
+        query_text,
+        ranking_mode,
+        use_bm25,
+        top_k,
+    )
     query = Query(text=query_text)
     expanded_queries: Iterable[Query] = query_rewriter.rewrite(query) or [query]
     expanded_queries = list(expanded_queries)
@@ -106,20 +114,30 @@ def search(
                 vector_doc_scores[chunk.document_id] = max(vector_doc_scores.get(chunk.document_id, 0.0), score)
 
     bm25_scores: dict[str, float] = {}
+    documents = document_repository.list()
     if use_bm25:
-        docs = document_repository.list()
         bm25_index = bm25_index or BM25Index()
-        bm25_index.update_documents(docs)
+        bm25_index.update_documents(documents)
         bm25_scores = bm25_index.scores(query_text)
         for doc_id, score in bm25_scores.items():
             logger.debug("BM25 сравнение: doc_id=%s, score=%.4f", doc_id, score)
 
-    doc_score = _merge_scores(vector_doc_scores, bm25_scores, ranking_mode=ranking_mode)
+    doc_weights = {doc.id: _document_weight(doc) for doc in documents}
+    doc_score = _merge_scores(
+        vector_doc_scores,
+        bm25_scores,
+        ranking_mode=ranking_mode,
+        vector_weight=vector_weight,
+        bm25_weight=bm25_weight,
+    )
+    _apply_document_weights(doc_score, doc_weights)
+
     doc_ids_ranked = [doc_id for doc_id, _ in sorted(doc_score.items(), key=lambda item: item[1], reverse=True)]
+    documents_by_id = {doc.id: doc for doc in documents}
 
     results: list[RetrievalResult] = []
     for doc_id in doc_ids_ranked:
-        document = document_repository.get(doc_id)
+        document = documents_by_id.get(doc_id) or document_repository.get(doc_id)
         hit = best_chunks.get(doc_id)
         chunk = hit.chunk if hit else None
         chunk_score = hit.score if hit else None
@@ -133,6 +151,9 @@ def search(
                 "chunk_score": chunk_score,
                 "document_vector_score": vector_doc_scores.get(doc_id),
                 "bm25_score": bm25_scores.get(doc_id),
+                "document_weight": doc_weights.get(doc_id, 1.0),
+                "vector_weight": vector_weight,
+                "bm25_weight": bm25_weight,
                 "ranking_mode": ranking_mode,
             },
         )
@@ -143,11 +164,27 @@ def search(
     return reranked[:top_k]
 
 
-def _merge_scores(vector_scores: dict[str, float], bm25_scores: dict[str, float], *, ranking_mode: str) -> dict[str, float]:
+def _merge_scores(
+    vector_scores: dict[str, float],
+    bm25_scores: dict[str, float],
+    *,
+    ranking_mode: str,
+    vector_weight: float = 1.0,
+    bm25_weight: float = 1.0,
+) -> dict[str, float]:
     if ranking_mode == "vector":
         return dict(vector_scores)
     if ranking_mode == "bm25":
         return dict(bm25_scores)
+
+    if ranking_mode in {"combsum", "combmnz"}:
+        return _comb_scores(
+            vector_scores,
+            bm25_scores,
+            vector_weight=vector_weight,
+            bm25_weight=bm25_weight,
+            multiply_by_nz=(ranking_mode == "combmnz"),
+        )
 
     vector_ranking = _ranked_ids(vector_scores)
     bm25_ranking = _ranked_ids(bm25_scores)
@@ -158,6 +195,55 @@ def _merge_scores(vector_scores: dict[str, float], bm25_scores: dict[str, float]
     for doc_id, score in bm25_scores.items():
         rrf.setdefault(doc_id, score * 1e-6)
     return rrf
+
+
+def _comb_scores(
+    vector_scores: dict[str, float],
+    bm25_scores: dict[str, float],
+    *,
+    vector_weight: float,
+    bm25_weight: float,
+    multiply_by_nz: bool,
+) -> dict[str, float]:
+    normalized_vector = _minmax_normalize(vector_scores)
+    normalized_bm25 = _minmax_normalize(bm25_scores)
+    merged: dict[str, float] = {}
+    all_ids = set(normalized_vector) | set(normalized_bm25)
+
+    for doc_id in all_ids:
+        v_score = normalized_vector.get(doc_id, 0.0)
+        b_score = normalized_bm25.get(doc_id, 0.0)
+        combsum = vector_weight * v_score + bm25_weight * b_score
+        if multiply_by_nz:
+            sources = int(v_score > 0.0) + int(b_score > 0.0)
+            merged[doc_id] = combsum * max(1, sources)
+        else:
+            merged[doc_id] = combsum
+    return merged
+
+
+def _minmax_normalize(scores: dict[str, float]) -> dict[str, float]:
+    if not scores:
+        return {}
+    values = list(scores.values())
+    min_score = min(values)
+    max_score = max(values)
+    if max_score <= min_score:
+        return {doc_id: 1.0 for doc_id in scores}
+    return {doc_id: (value - min_score) / (max_score - min_score) for doc_id, value in scores.items()}
+
+
+def _apply_document_weights(scores: dict[str, float], doc_weights: dict[str, float]) -> None:
+    for doc_id, score in list(scores.items()):
+        scores[doc_id] = score * doc_weights.get(doc_id, 1.0)
+
+
+def _document_weight(document: Document) -> float:
+    raw_weight = document.metadata.get("rank_weight", 1.0)
+    try:
+        return max(0.0, float(raw_weight))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def _ensure_in_memory_index(

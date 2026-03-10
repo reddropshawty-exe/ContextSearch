@@ -151,6 +151,21 @@ CONTEXTSEARCH_MODELS_DIR=models streamlit run ui/web/app.py
 - **Наблюдаемость и тесты.** Ввести unit-тесты для use cases, structured logging
   в API, сбор метрик и сохранение результатов экспериментов.
 
+
+## Режимы ранжирования поиска
+
+Поддерживаются режимы:
+- `vector` — только векторное сходство,
+- `bm25` — только BM25,
+- `rrf` — Reciprocal Rank Fusion,
+- `combsum` — нормализованная сумма vector+bm25,
+- `combmnz` — CombSUM с мультипликатором числа ненулевых источников.
+
+В UI/API можно задавать `top_k` (сколько документов вернуть) и веса
+`vector_weight` / `bm25_weight` для режимов `combsum` и `combmnz`.
+Дополнительно на итоговый `score` влияет `document.metadata["rank_weight"]`
+(по умолчанию `1.0`).
+
 ## Retrieval evaluation
 
 - Requirements: `docs/retrieval_evaluation_requirements.md`

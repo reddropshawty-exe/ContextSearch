@@ -88,6 +88,7 @@ class ContextSearchApp:
         self.embedder_key_var = StringVar(value="all-minilm")
         self.storage_var = StringVar(value=self._default_storage())
         self.rank_mode_var = StringVar(value="rrf")
+        self.top_k_var = StringVar(value="10")
 
         self.status_var = StringVar(value="Готово")
         self.selected_docs_var = StringVar(value="0 документов выбрано")
@@ -214,11 +215,21 @@ class ContextSearchApp:
         rank_select = Combobox(
             rank_row,
             textvariable=self.rank_mode_var,
-            values=["rrf", "vector", "bm25"],
+            values=["rrf", "vector", "bm25", "combsum", "combmnz"],
             width=12,
             state="readonly",
         )
         rank_select.pack(side=LEFT)
+
+        Label(rank_row, text="k", bg=PALETTE["panel_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=(12, 4))
+        Entry(
+            rank_row,
+            textvariable=self.top_k_var,
+            width=5,
+            bg=PALETTE["input_bg"],
+            fg=PALETTE["input_text"],
+            relief="flat",
+        ).pack(side=LEFT)
 
         self.search_btn = self._make_button(zone, text="ПОИСК", command=self.search_query, state="disabled", width=28, variant="primary")
         self.search_btn.pack(pady=12)
@@ -481,6 +492,11 @@ class ContextSearchApp:
         container = self.build_container()
         progress = self._open_progress("Выполняется поиск...")
         try:
+            try:
+                top_k = max(1, int(self.top_k_var.get() or "10"))
+            except ValueError:
+                messagebox.showerror("Контекстный поиск", "Поле k должно быть целым числом")
+                return
             self._search_results_cache = search(
                 query,
                 embedders=container.embedders,
@@ -492,7 +508,8 @@ class ContextSearchApp:
                 query_rewriter=container.query_rewriter,
                 reranker=container.reranker,
                 bm25_index=container.bm25_index,
-                use_bm25=self.bm25_var.get() or self.rank_mode_var.get() in {"bm25", "rrf"},
+                top_k=top_k,
+                use_bm25=self.bm25_var.get() or self.rank_mode_var.get() in {"bm25", "rrf", "combsum", "combmnz"},
                 ranking_mode=self.rank_mode_var.get(),
             )
         finally:

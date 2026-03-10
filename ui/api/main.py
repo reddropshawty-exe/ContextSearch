@@ -91,7 +91,13 @@ def documents_endpoint() -> list[DocumentPayload]:
 
 
 @app.get("/search", response_model=SearchResponse)
-def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пользователя")) -> SearchResponse:
+def search_endpoint(
+    q: str = FastAPIQuery(..., description="Запрос пользователя"),
+    ranking_mode: str = FastAPIQuery("rrf", description="vector|bm25|rrf|combsum|combmnz"),
+    top_k: int = FastAPIQuery(5, ge=1, le=100),
+    vector_weight: float = FastAPIQuery(1.0, ge=0.0),
+    bm25_weight: float = FastAPIQuery(1.0, ge=0.0),
+) -> SearchResponse:
     results = search(
         q,
         embedders=container.embedders,
@@ -103,6 +109,11 @@ def search_endpoint(q: str = FastAPIQuery(..., description="Запрос пол�
         bm25_index=container.bm25_index,
         query_rewriter=container.query_rewriter,
         reranker=container.reranker,
+        top_k=top_k,
+        ranking_mode=ranking_mode,
+        use_bm25=ranking_mode in {"bm25", "rrf", "combsum", "combmnz"},
+        vector_weight=vector_weight,
+        bm25_weight=bm25_weight,
     )
     serialized = [
         {

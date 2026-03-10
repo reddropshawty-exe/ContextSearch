@@ -1,42 +1,26 @@
-"""Streamlit-заглушка для демонстрации индексации и поиска."""
+"""Простой Streamlit UI для демонстрации сценариев ContextSearch."""
 from __future__ import annotations
 
 import streamlit as st
 
 from application.use_cases.ingest_documents import ingest_documents
 from application.use_cases.search import search
-from infrastructure.config import ContainerConfig, build_default_container
+from infrastructure.config import build_default_container
 from ui.logging_utils import setup_logging
 
 setup_logging()
 
+st.set_page_config(page_title="ContextSearch Demo", layout="wide")
+st.title("ContextSearch (демо)")
 
-@st.cache_resource
-def get_container(safe_mode: bool, embedding_store: str):
-    return build_default_container(ContainerConfig(safe_mode=safe_mode, embedding_store=embedding_store))
-
-
-if "documents" not in st.session_state:
-    st.session_state["documents"] = []
-safe_mode = st.toggle("Безопасный режим (без HNSW/torch)", value=False)
-embedding_store = st.selectbox("Хранилище эмбеддингов", ["sqlite", "in_memory", "hnsw"], index=0)
-container = get_container(safe_mode, embedding_store)
-store_label = {"sqlite": "sqlite", "in_memory": "in_memory", "hnsw": "hnsw"}.get(embedding_store, embedding_store)
-st.set_page_config(page_title="ContextSearch Демо")
-st.title("ContextSearch Демо")
-st.caption(
-    "Активная конфигурация: "
-    f"эмбеддер={container.embedder.model_id}, хранилище={store_label}, "
-    f"specs={len(container.embedding_specs)}"
-)
+container = build_default_container()
 
 st.header("Индексация")
-ingest_form = st.form("ingest")
-document_content = ingest_form.text_area("Содержимое", value="Введите текст документа...")
-ingest_submit = ingest_form.form_submit_button("Индексировать документ")
-if ingest_submit:
+ingest_id = st.text_input("ID документа", value="doc-1")
+ingest_text = st.text_area("Текст документа", value="Это тестовый документ про контекстный поиск.")
+if st.button("Индексировать документ"):
     ingest_documents(
-        [(None, document_content)],
+        [(ingest_id, ingest_text)],
         extractor=container.extractor,
         splitter=container.splitter,
         embedders=container.embedders,
@@ -50,6 +34,11 @@ if ingest_submit:
 
 st.header("Поиск")
 search_query = st.text_input("Запрос", value="контекстный поиск")
+ranking_mode = st.selectbox("Метод ранжирования", ["rrf", "vector", "bm25", "combsum", "combmnz"], index=0)
+top_k = st.number_input("Количество документов (k)", min_value=1, max_value=100, value=10, step=1)
+vector_weight = st.number_input("Вес vector", min_value=0.0, max_value=10.0, value=1.0, step=0.1)
+bm25_weight = st.number_input("Вес BM25", min_value=0.0, max_value=10.0, value=1.0, step=0.1)
+
 if st.button("Найти"):
     results = search(
         search_query,
@@ -62,6 +51,11 @@ if st.button("Найти"):
         bm25_index=container.bm25_index,
         query_rewriter=container.query_rewriter,
         reranker=container.reranker,
+        top_k=int(top_k),
+        ranking_mode=ranking_mode,
+        use_bm25=ranking_mode in {"bm25", "rrf", "combsum", "combmnz"},
+        vector_weight=float(vector_weight),
+        bm25_weight=float(bm25_weight),
     )
     for result in results:
         chunk_score = result.metadata.get("chunk_score", result.score)
@@ -70,9 +64,11 @@ if st.button("Найти"):
         st.write(
             {
                 "документ": result.document_id,
+                "rank_score": round(result.score, 3),
                 "chunk_score": round(chunk_score, 3),
                 "document_score": round(document_score, 3) if document_score is not None else None,
                 "bm25_score": round(bm25_score, 3) if bm25_score is not None else None,
+                "document_weight": result.metadata.get("document_weight"),
                 "текст": result.chunk.text if result.chunk else None,
             }
         )
