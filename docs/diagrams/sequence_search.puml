@@ -1,0 +1,69 @@
+@startuml
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor User
+participant "UI/API" as UI
+participant "search" as UC
+participant "QueryRewriter" as QR
+participant "Embedder" as EMB
+participant "EmbeddingStore" as ES
+participant "EmbeddingRecordRepository" as ERR
+participant "DocumentRepository" as DR
+participant "ChunkRepository" as CR
+participant "BM25Index" as BM25
+participant "Reranker" as RR
+
+== Общий пайплайн поиска ==
+User -> UI: Ввести query
+UI -> UC: search(query_text, ..., top_k, use_bm25, ranking_mode)
+UC -> QR: rewrite(Query)
+QR --> UC: expanded_queries
+
+loop Для каждой document/chunk спецификации
+  UC -> EMB: embed_query(query)
+  EMB --> UC: query_embedding
+  UC -> ES: search(spec, query_embedding, top_k)
+  ES --> UC: (ann_id, score)[]
+  UC -> ERR: find_object_ids(spec.id, ann_ids)
+  ERR --> UC: object_ids
+  UC -> DR: get(document_id) / list()
+  UC -> CR: get(chunk_id) / list()
+end
+
+opt use_bm25=true
+  UC -> BM25: search(query, top_k)
+  BM25 --> UC: bm25_scores
+end
+
+UC -> UC: fuse scores (vector / bm25 / hybrid_rrf)
+UC -> RR: rerank(query, retrieval_results)
+RR --> UC: ranked_results
+UC --> UI: list[RetrievalResult]
+UI --> User: Показ результатов
+
+newpage
+== Детализация: гибридное ранжирование ==
+participant "Vector ranking" as VR
+participant "BM25 ranking" as BR
+participant "RRF combiner" as RRF
+
+alt ranking_mode == "vector"
+  UC -> VR: sort by vector score
+  VR --> UC: ranked_ids
+else ranking_mode == "bm25"
+  UC -> BR: sort by bm25 score
+  BR --> UC: ranked_ids
+else ranking_mode == "hybrid_rrf" / "rrf"
+  UC -> VR: get vector ranked_ids
+  UC -> BR: get bm25 ranked_ids
+  UC -> RRF: combine(rankings, k=rrf_k)
+  RRF --> UC: fused_scores
+end
+
+note over UC
+В метаданные результата кладутся
+vector_score / bm25_score / chunk_score,
+чтобы можно было объяснить итоговый rank.
+end note
+@enduml
