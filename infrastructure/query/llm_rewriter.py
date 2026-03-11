@@ -10,24 +10,19 @@ from domain.interfaces import QueryRewriter
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_PROMPT_TEMPLATE = (
-    "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. "
-    "Верни каждый вариант с новой строки без нумерации.\\n\\n"
-    "Запрос: {query}"
-)
+DEFAULT_PROMPT_TEMPLATE = "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений."
 
 
 @dataclass(slots=True)
 class LLMRewriterConfig:
-    model: str = "cointegrated/rut5-base-paraphraser"
+    model: str = "Qwen/Qwen2.5-0.5B-Instruct"
     prompt_template: str = DEFAULT_PROMPT_TEMPLATE
-    max_queries: int = 3
     max_query_length: int = 256
     max_new_tokens: int = 64
 
 
 class LLMQueryRewriter(QueryRewriter):
-    """Генерирует несколько вариантов запроса с помощью локальной LLM."""
+    """Генерирует один переписанный вариант запроса с помощью локальной LLM."""
 
     def __init__(self, config: LLMRewriterConfig) -> None:
         self._config = config
@@ -35,68 +30,62 @@ class LLMQueryRewriter(QueryRewriter):
         self._model = None
 
     def rewrite(self, query: Query) -> list[Query]:
-        if not self._ensure_pipeline():
+        if not self._ensure_model():
             return [query]
         try:
-            raw = self._request_rewrites(query.text)
+            raw = self._request_rewrite(query.text)
         except Exception:  # pragma: no cover - делаем лучшее возможное
             logger.exception("Не удалось переписать запрос через LLM.")
             return [query]
 
-        candidates = self._parse_candidates(raw)
-        logger.info("LLM rewrite: model=%s, source=%r, generated=%s", self._config.model, query.text, candidates)
-        if not candidates:
+        candidate = self._parse_candidate(raw)
+        logger.info("LLM rewrite: model=%s, source=%r, rewritten=%r", self._config.model, query.text, candidate)
+        if not candidate:
             return [query]
-        return [Query(text=text) for text in candidates]
+        return [Query(text=candidate)]
 
-    def _ensure_pipeline(self) -> bool:
+    def _ensure_model(self) -> bool:
         if self._model is not None and self._tokenizer is not None:
             return True
         try:
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+            from transformers import AutoModelForCausalLM, AutoTokenizer
 
             self._tokenizer = AutoTokenizer.from_pretrained(self._config.model)
-            self._model = AutoModelForSeq2SeqLM.from_pretrained(self._config.model)
+            self._model = AutoModelForCausalLM.from_pretrained(self._config.model)
             return True
         except Exception:
             logger.exception("Не удалось загрузить LLM rewriter model: %s", self._config.model)
             return False
 
-    def _request_rewrites(self, text: str) -> str:
-        prompt = self._build_prompt(text)
-        logger.debug("LLM rewrite prompt: %s", prompt)
-        inputs = self._tokenizer(prompt, return_tensors="pt", truncation=True)
+    def _request_rewrite(self, query_text: str) -> str:
+        model_input = self._build_model_input(query_text)
+        logger.debug("LLM rewrite input: %s", model_input)
+        inputs = self._tokenizer(model_input, return_tensors="pt", truncation=True)
         model_device = getattr(self._model, "device", None)
         if model_device is not None:
             inputs = {k: v.to(model_device) if hasattr(v, "to") else v for k, v in inputs.items()}
+
         generated = self._model.generate(
             **inputs,
             max_new_tokens=self._config.max_new_tokens,
             do_sample=False,
         )
-        return self._tokenizer.decode(generated[0], skip_special_tokens=True)
+        decoded = self._tokenizer.decode(generated[0], skip_special_tokens=True)
+        if decoded.startswith(model_input):
+            return decoded[len(model_input) :].strip()
+        return decoded.strip()
 
-    def _build_prompt(self, text: str) -> str:
-        try:
-            return self._config.prompt_template.format(count=self._config.max_queries, query=text)
-        except Exception:
-            logger.warning("Некорректный prompt_template для LLM rewriter, используем шаблон по умолчанию.")
-            return DEFAULT_PROMPT_TEMPLATE.format(count=self._config.max_queries, query=text)
+    def _build_model_input(self, query_text: str) -> str:
+        prompt = self._config.prompt_template.strip() or DEFAULT_PROMPT_TEMPLATE
+        compact_query = query_text.strip().replace("\n", " ")
+        return f"Инструкция: {prompt} Запрос: {compact_query} Переписанный запрос:"
 
-    def _parse_candidates(self, raw: str) -> list[str]:
-        cleaned = raw.strip()
-        if not cleaned:
-            return []
-        candidates = cleaned.splitlines()
-        normalized: list[str] = []
-        for candidate in candidates:
-            text = candidate.strip(" -\t\r\n")
-            if not text:
-                continue
-            text = text[: self._config.max_query_length]
-            if text not in normalized:
-                normalized.append(text)
-        return normalized[: self._config.max_queries]
+    def _parse_candidate(self, raw: str) -> str | None:
+        if not raw.strip():
+            return None
+        first_line = raw.strip().splitlines()[0].strip(" -\t\r\n")
+        first_line = first_line[: self._config.max_query_length]
+        return first_line or None
 
 
 __all__ = ["LLMQueryRewriter", "LLMRewriterConfig", "DEFAULT_PROMPT_TEMPLATE"]

@@ -97,8 +97,8 @@ class ContainerConfig:
     device: str = "cpu"
     normalize_embeddings: bool = True
     embeddinggemma_model: str = "google/embeddinggemma-300m"
-    local_rewriter_model: str = "cointegrated/rut5-base-paraphraser"
-    local_rewriter_prompt: str = "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}"
+    local_rewriter_model: str = "Qwen/Qwen2.5-0.5B-Instruct"
+    local_rewriter_prompt: str = "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений."
     models_dir: str | None = None
     safe_mode: bool = False
     embedder_models: tuple[EmbedderName, ...] = ("all-minilm",)

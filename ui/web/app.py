@@ -46,8 +46,8 @@ if "show_rewriter_settings" not in st.session_state:
 if st.button("Настроить LLM"):
     st.session_state["show_rewriter_settings"] = not st.session_state["show_rewriter_settings"]
 
-rewriter_model = "cointegrated/rut5-base-paraphraser"
-rewriter_prompt = "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}"
+rewriter_model = "Qwen/Qwen2.5-0.5B-Instruct"
+rewriter_prompt = "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений."
 if st.session_state["show_rewriter_settings"]:
     rewriter_model = st.text_input("LLM модель rewrite", value=rewriter_model)
     rewriter_prompt = st.text_input("Prompt для rewrite", value=rewriter_prompt)
@@ -56,7 +56,7 @@ if st.button("Найти"):
     query_rewriter = SimpleQueryRewriter()
     if use_llm_rewriter:
         query_rewriter = LLMQueryRewriter(
-            LLMRewriterConfig(model=rewriter_model.strip() or "cointegrated/rut5-base-paraphraser", prompt_template=rewriter_prompt)
+            LLMRewriterConfig(model=rewriter_model.strip() or "Qwen/Qwen2.5-0.5B-Instruct", prompt_template=rewriter_prompt)
         )
     results = search(
         search_query,

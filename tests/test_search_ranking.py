@@ -10,7 +10,13 @@ class TestSearchRankingModes(unittest.TestCase):
         vector_scores = {"doc-1": 0.9, "doc-2": 0.7}
         bm25_scores = {"doc-1": 0.1, "doc-2": 10.0}
 
-        merged = _merge_scores(vector_scores, bm25_scores, ranking_mode="combsum")
+        merged = _merge_scores(
+            vector_scores,
+            bm25_scores,
+            ranking_mode="combsum",
+            vector_weight=0.4,
+            bm25_weight=1.6,
+        )
 
         self.assertGreater(merged["doc-2"], merged["doc-1"])
 

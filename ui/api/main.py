@@ -100,9 +100,9 @@ def search_endpoint(
     vector_weight: float = FastAPIQuery(1.0, ge=0.0),
     bm25_weight: float = FastAPIQuery(1.0, ge=0.0),
     use_llm_rewriter: bool = FastAPIQuery(False),
-    rewriter_model: str = FastAPIQuery("cointegrated/rut5-base-paraphraser"),
+    rewriter_model: str = FastAPIQuery("Qwen/Qwen2.5-0.5B-Instruct"),
     rewriter_prompt: str = FastAPIQuery(
-        "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}"
+        "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений."
     ),
 ) -> SearchResponse:
     query_rewriter = container.query_rewriter

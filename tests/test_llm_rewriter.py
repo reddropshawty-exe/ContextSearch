@@ -8,10 +8,10 @@ from infrastructure.query.llm_rewriter import LLMQueryRewriter, LLMRewriterConfi
 
 @unittest.skipIf(importlib.util.find_spec("transformers") is None, "transformers not installed")
 class TestLLMQueryRewriter(unittest.TestCase):
-    @patch("transformers.AutoModelForSeq2SeqLM.from_pretrained")
+    @patch("transformers.AutoModelForCausalLM.from_pretrained")
     @patch("transformers.AutoTokenizer.from_pretrained")
-    def test_uses_custom_prompt_template(self, mock_tokenizer_factory, mock_model_factory):
-        prompts = []
+    def test_prompt_and_query_are_passed_as_single_input_line(self, mock_tokenizer_factory, mock_model_factory):
+        calls = []
 
         class _Tokens(dict):
             def items(self):
@@ -19,11 +19,12 @@ class TestLLMQueryRewriter(unittest.TestCase):
 
         class _Tokenizer:
             def __call__(self, prompt, **kwargs):
-                prompts.append(prompt)
+                calls.append(prompt)
                 return _Tokens({"input_ids": [1, 2, 3]})
 
             def decode(self, _generated, skip_special_tokens=True):
-                return "вариант 1\nвариант 2"
+                # emulate causal LM response containing prompt + completion
+                return calls[0] + " новый переписанный запрос"
 
         class _Model:
             device = None
@@ -37,15 +38,17 @@ class TestLLMQueryRewriter(unittest.TestCase):
         rewriter = LLMQueryRewriter(
             LLMRewriterConfig(
                 model="local/model",
-                prompt_template="Перепиши запрос в {count} вариантах: {query}",
-                max_queries=2,
+                prompt_template="Сделай запрос более точным",
+                max_query_length=100,
             )
         )
 
-        rewritten = rewriter.rewrite(Query(text="как найти документ"))
+        rewritten = rewriter.rewrite(Query(text="резюме бэкенд разработчика"))
 
-        self.assertEqual([q.text for q in rewritten], ["вариант 1", "вариант 2"])
-        self.assertEqual(prompts[0], "Перепиши запрос в 2 вариантах: как найти документ")
+        self.assertEqual([q.text for q in rewritten], ["новый переписанный запрос"])
+        self.assertIn("Инструкция: Сделай запрос более точным", calls[0])
+        self.assertIn("Запрос: резюме бэкенд разработчика", calls[0])
+        self.assertIn("Переписанный запрос:", calls[0])
 
     @patch("transformers.AutoTokenizer.from_pretrained", side_effect=RuntimeError("load error"))
     def test_falls_back_to_original_query_when_model_fails(self, _mock_tokenizer_factory):

@@ -13,7 +13,7 @@ DEFAULT_EMBEDDING_MODELS = (
     "intfloat/multilingual-e5-base",
     "google/embeddinggemma-300m",
 )
-DEFAULT_REWRITER_MODEL = "cointegrated/rut5-base-paraphraser"
+DEFAULT_REWRITER_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 
 def prefetch_embedding_model(model_name: str, output_dir: Path) -> Path:

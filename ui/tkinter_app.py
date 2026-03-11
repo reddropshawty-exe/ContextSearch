@@ -89,8 +89,8 @@ class ContextSearchApp:
         self.storage_var = StringVar(value=self._default_storage())
         self.rank_mode_var = StringVar(value="rrf")
         self.top_k_var = StringVar(value="10")
-        self.rewriter_model_var = StringVar(value="cointegrated/rut5-base-paraphraser")
-        self.rewriter_prompt_var = StringVar(value="Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}")
+        self.rewriter_model_var = StringVar(value="Qwen/Qwen2.5-0.5B-Instruct")
+        self.rewriter_prompt_var = StringVar(value="Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений.")
 
         self.status_var = StringVar(value="Готово")
         self.selected_docs_var = StringVar(value="0 документов выбрано")
@@ -393,8 +393,8 @@ class ContextSearchApp:
             rewriter="llm" if self.llm_rewrite_var.get() else "simple",
             embedding_store=self.storage_var.get(),
             data_root=DATA_ROOT,
-            local_rewriter_model=self.rewriter_model_var.get().strip() or "cointegrated/rut5-base-paraphraser",
-            local_rewriter_prompt=self.rewriter_prompt_var.get().strip() or "Сгенерируй {count} альтернативных поисковых запросов для запроса ниже. Верни каждый вариант с новой строки без нумерации.\n\nЗапрос: {query}",
+            local_rewriter_model=self.rewriter_model_var.get().strip() or "Qwen/Qwen2.5-0.5B-Instruct",
+            local_rewriter_prompt=self.rewriter_prompt_var.get().strip() or "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений.",
         )
         cache_key = (
             config.embedder,
