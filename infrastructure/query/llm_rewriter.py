@@ -31,7 +31,8 @@ class LLMQueryRewriter(QueryRewriter):
 
     def __init__(self, config: LLMRewriterConfig) -> None:
         self._config = config
-        self._pipeline = None
+        self._tokenizer = None
+        self._model = None
 
     def rewrite(self, query: Query) -> list[Query]:
         if not self._ensure_pipeline():
@@ -49,12 +50,13 @@ class LLMQueryRewriter(QueryRewriter):
         return [Query(text=text) for text in candidates]
 
     def _ensure_pipeline(self) -> bool:
-        if self._pipeline is not None:
+        if self._model is not None and self._tokenizer is not None:
             return True
         try:
-            from transformers import pipeline
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-            self._pipeline = pipeline("text2text-generation", model=self._config.model)
+            self._tokenizer = AutoTokenizer.from_pretrained(self._config.model)
+            self._model = AutoModelForSeq2SeqLM.from_pretrained(self._config.model)
             return True
         except Exception:
             logger.exception("Не удалось загрузить LLM rewriter model: %s", self._config.model)
@@ -63,8 +65,16 @@ class LLMQueryRewriter(QueryRewriter):
     def _request_rewrites(self, text: str) -> str:
         prompt = self._build_prompt(text)
         logger.debug("LLM rewrite prompt: %s", prompt)
-        outputs = self._pipeline(prompt, max_new_tokens=self._config.max_new_tokens, do_sample=False)
-        return outputs[0]["generated_text"]
+        inputs = self._tokenizer(prompt, return_tensors="pt", truncation=True)
+        model_device = getattr(self._model, "device", None)
+        if model_device is not None:
+            inputs = {k: v.to(model_device) if hasattr(v, "to") else v for k, v in inputs.items()}
+        generated = self._model.generate(
+            **inputs,
+            max_new_tokens=self._config.max_new_tokens,
+            do_sample=False,
+        )
+        return self._tokenizer.decode(generated[0], skip_special_tokens=True)
 
     def _build_prompt(self, text: str) -> str:
         try:

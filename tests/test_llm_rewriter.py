@@ -8,16 +8,32 @@ from infrastructure.query.llm_rewriter import LLMQueryRewriter, LLMRewriterConfi
 
 @unittest.skipIf(importlib.util.find_spec("transformers") is None, "transformers not installed")
 class TestLLMQueryRewriter(unittest.TestCase):
-    @patch("transformers.pipeline")
-    def test_uses_custom_prompt_template(self, mock_pipeline):
-        calls = []
+    @patch("transformers.AutoModelForSeq2SeqLM.from_pretrained")
+    @patch("transformers.AutoTokenizer.from_pretrained")
+    def test_uses_custom_prompt_template(self, mock_tokenizer_factory, mock_model_factory):
+        prompts = []
 
-        class _Runner:
+        class _Tokens(dict):
+            def items(self):
+                return super().items()
+
+        class _Tokenizer:
             def __call__(self, prompt, **kwargs):
-                calls.append(prompt)
-                return [{"generated_text": "вариант 1\nвариант 2"}]
+                prompts.append(prompt)
+                return _Tokens({"input_ids": [1, 2, 3]})
 
-        mock_pipeline.return_value = _Runner()
+            def decode(self, _generated, skip_special_tokens=True):
+                return "вариант 1\nвариант 2"
+
+        class _Model:
+            device = None
+
+            def generate(self, **kwargs):
+                return [[10, 11, 12]]
+
+        mock_tokenizer_factory.return_value = _Tokenizer()
+        mock_model_factory.return_value = _Model()
+
         rewriter = LLMQueryRewriter(
             LLMRewriterConfig(
                 model="local/model",
@@ -29,10 +45,10 @@ class TestLLMQueryRewriter(unittest.TestCase):
         rewritten = rewriter.rewrite(Query(text="как найти документ"))
 
         self.assertEqual([q.text for q in rewritten], ["вариант 1", "вариант 2"])
-        self.assertEqual(calls[0], "Перепиши запрос в 2 вариантах: как найти документ")
+        self.assertEqual(prompts[0], "Перепиши запрос в 2 вариантах: как найти документ")
 
-    @patch("transformers.pipeline", side_effect=RuntimeError("load error"))
-    def test_falls_back_to_original_query_when_model_fails(self, _mock_pipeline):
+    @patch("transformers.AutoTokenizer.from_pretrained", side_effect=RuntimeError("load error"))
+    def test_falls_back_to_original_query_when_model_fails(self, _mock_tokenizer_factory):
         rewriter = LLMQueryRewriter(LLMRewriterConfig(model="broken/model"))
 
         rewritten = rewriter.rewrite(Query(text="оригинал"))
