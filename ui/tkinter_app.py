@@ -976,14 +976,15 @@ class ContextSearchApp:
             if not query_text or not selected:
                 messagebox.showwarning("Тестирование", "Введите query и выберите релевантные документы")
                 return
-            relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
-            if not relevant_ids:
+            relevant_sources = [
+                str(docs_index[i].metadata.get("source_uri") or docs_index[i].path or docs_index[i].id)
+                for i in selected
+                if i < len(docs_index)
+            ]
+            if not relevant_sources:
                 messagebox.showwarning("Тестирование", "Список релевантных документов пуст")
                 return
-            if any(doc_id not in test_set_doc_ids for doc_id in relevant_ids):
-                messagebox.showwarning("Тестирование", "Метки должны ссылаться на документы тестового набора")
-                return
-            labeled_cases.append((query_text, relevant_ids))
+            labeled_cases.append((query_text, relevant_sources))
             query_var.set("")
             refresh_labels_list()
 
@@ -1014,9 +1015,13 @@ class ContextSearchApp:
                 query_text = query_var.get().strip()
                 selected = docs_list.curselection()
                 if query_text and selected:
-                    relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
-                    if relevant_ids:
-                        labeled_cases.append((query_text, relevant_ids))
+                    relevant_sources = [
+                        str(docs_index[i].metadata.get("source_uri") or docs_index[i].path or docs_index[i].id)
+                        for i in selected
+                        if i < len(docs_index)
+                    ]
+                    if relevant_sources:
+                        labeled_cases.append((query_text, relevant_sources))
                         refresh_labels_list()
 
             if not labeled_cases:
@@ -1025,8 +1030,18 @@ class ContextSearchApp:
 
             suite = create_test_suite(suite_name_var.get().strip() or "Оценка поиска")
             suite.document_ids = list(test_set_doc_ids)
-            for q_text, rel_ids in labeled_cases:
-                suite.test_cases.append(create_test_case(q_text, rel_ids, source="user"))
+            source_to_doc_id = {
+                str(doc.metadata.get("source_uri") or doc.path or doc.id): doc.id
+                for doc in docs_index
+            }
+            for q_text, rel_sources in labeled_cases:
+                relevant_ids = [source_to_doc_id[source] for source in rel_sources if source in source_to_doc_id]
+                if relevant_ids:
+                    suite.test_cases.append(create_test_case(q_text, relevant_ids, source="user"))
+
+            if not suite.test_cases:
+                messagebox.showwarning("Тестирование", "Нет валидных меток для текущей модели")
+                return
 
             spec = self._active_document_spec(container)
             if spec is None:
@@ -1054,9 +1069,13 @@ class ContextSearchApp:
                 query_text = query_var.get().strip()
                 selected = docs_list.curselection()
                 if query_text and selected:
-                    relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
-                    if relevant_ids:
-                        labeled_cases.append((query_text, relevant_ids))
+                    relevant_sources = [
+                        str(docs_index[i].metadata.get("source_uri") or docs_index[i].path or docs_index[i].id)
+                        for i in selected
+                        if i < len(docs_index)
+                    ]
+                    if relevant_sources:
+                        labeled_cases.append((query_text, relevant_sources))
                         refresh_labels_list()
             if not labeled_cases:
                 messagebox.showwarning("Тестирование", "Добавьте хотя бы одну метку (query -> документы)")
@@ -1091,11 +1110,16 @@ class ContextSearchApp:
                     if eval_repo is None:
                         continue
 
-                    current_doc_ids = {doc.id for doc in eval_container.document_repository.list()}
+                    current_docs = eval_container.document_repository.list()
+                    current_doc_ids = {doc.id for doc in current_docs}
+                    source_to_doc_id = {
+                        str(doc.metadata.get("source_uri") or doc.path or doc.id): doc.id
+                        for doc in current_docs
+                    }
                     suite = create_test_suite(f"{suite_name_var.get().strip() or 'Оценка поиска'} [{model_key}]")
                     suite.document_ids = list(current_doc_ids)
-                    for q_text, rel_ids in labeled_cases:
-                        filtered = [doc_id for doc_id in rel_ids if doc_id in current_doc_ids]
+                    for q_text, rel_sources in labeled_cases:
+                        filtered = [source_to_doc_id[source] for source in rel_sources if source in source_to_doc_id]
                         if filtered:
                             suite.test_cases.append(create_test_case(q_text, filtered, source="user"))
                     if not suite.test_cases:
