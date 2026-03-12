@@ -1,6 +1,7 @@
 """Tkinter-интерфейс для локальной индексации и поиска."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -950,7 +951,6 @@ class ContextSearchApp:
                     indexed_models += 1
             finally:
                 progress.destroy()
-            labeled_cases.clear()
             eval_selected_paths.clear()
             selected_paths_var.set("0 документов выбрано")
             refresh_docs_list()
@@ -963,7 +963,7 @@ class ContextSearchApp:
         self._make_button(docs_picker, text="Индексировать в набор", command=index_eval_docs, variant="success").pack(side=LEFT, padx=4)
         Label(docs_picker, textvariable=selected_paths_var, bg=PALETTE["modal_bg"], fg=PALETTE["muted_text"], font=FONTS["small"]).pack(side=LEFT, padx=10)
 
-        labeled_cases: list[tuple[str, list[str]]] = []
+        labeled_cases: list[tuple[str, list[str]]] = self._load_evaluation_labels()
 
         def refresh_labels_list() -> None:
             labels_list.delete(0, END)
@@ -985,6 +985,7 @@ class ContextSearchApp:
                 messagebox.showwarning("Тестирование", "Список релевантных документов пуст")
                 return
             labeled_cases.append((query_text, relevant_sources))
+            self._save_evaluation_labels(labeled_cases)
             query_var.set("")
             refresh_labels_list()
 
@@ -995,6 +996,7 @@ class ContextSearchApp:
             idx = sel[0]
             if 0 <= idx < len(labeled_cases):
                 labeled_cases.pop(idx)
+                self._save_evaluation_labels(labeled_cases)
                 refresh_labels_list()
 
         def refresh_history() -> None:
@@ -1022,6 +1024,7 @@ class ContextSearchApp:
                     ]
                     if relevant_sources:
                         labeled_cases.append((query_text, relevant_sources))
+                        self._save_evaluation_labels(labeled_cases)
                         refresh_labels_list()
 
             if not labeled_cases:
@@ -1076,6 +1079,7 @@ class ContextSearchApp:
                     ]
                     if relevant_sources:
                         labeled_cases.append((query_text, relevant_sources))
+                        self._save_evaluation_labels(labeled_cases)
                         refresh_labels_list()
             if not labeled_cases:
                 messagebox.showwarning("Тестирование", "Добавьте хотя бы одну метку (query -> документы)")
@@ -1194,6 +1198,46 @@ class ContextSearchApp:
         refresh_docs_list()
         refresh_labels_list()
         refresh_history()
+
+    def _labels_store_path(self) -> Path:
+        path = Path(DATA_ROOT) / "evaluation_labels.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _load_evaluation_labels(self) -> list[tuple[str, list[str]]]:
+        path = self._labels_store_path()
+        if not path.exists():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+        result: list[tuple[str, list[str]]] = []
+        if not isinstance(payload, list):
+            return result
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            query = str(item.get("query", "")).strip()
+            relevant_sources = item.get("relevant_sources", [])
+            if not query or not isinstance(relevant_sources, list):
+                continue
+            normalized = [str(source).strip() for source in relevant_sources if str(source).strip()]
+            if normalized:
+                result.append((query, normalized))
+        return result
+
+    def _save_evaluation_labels(self, labeled_cases: list[tuple[str, list[str]]]) -> None:
+        payload = [
+            {"query": q, "relevant_sources": list(rel_sources)}
+            for q, rel_sources in labeled_cases
+            if q and rel_sources
+        ]
+        self._labels_store_path().write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def _export_evaluation_results_xlsx(self, path: Path, rows: list[dict[str, object]]) -> None:
         from openpyxl import Workbook
