@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from tkinter import (
     END,
@@ -13,6 +14,7 @@ from tkinter import (
     Y,
     BooleanVar,
     Button,
+    Checkbutton,
     Entry,
     Frame,
     Label,
@@ -835,14 +837,24 @@ class ContextSearchApp:
 
         rank_var = StringVar(value="hybrid_rrf")
         Label(form, text="Ranking", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).grid(row=0, column=3, sticky="w")
-        Combobox(form, textvariable=rank_var, values=["hybrid_rrf", "vector", "bm25"], width=12, state="readonly").grid(row=1, column=3, padx=4)
+        Combobox(form, textvariable=rank_var, values=["hybrid_rrf", "vector", "bm25", "combsum", "combmnz"], width=12, state="readonly").grid(row=1, column=3, padx=4)
+
+        use_bm25_var = BooleanVar(value=True)
+        Checkbutton(
+            form,
+            text="BM25 для прогона",
+            variable=use_bm25_var,
+            bg=PALETTE["modal_bg"],
+            fg=PALETTE["text"],
+            selectcolor=PALETTE["card_bg"],
+        ).grid(row=1, column=4, padx=6)
 
         docs_frame = Frame(modal, bg=PALETTE["modal_bg"])
         docs_frame.pack(fill=BOTH, expand=True, padx=10, pady=6)
 
         docs_ctrl = Frame(docs_frame, bg=PALETTE["modal_bg"])
         docs_ctrl.pack(fill=X)
-        Label(docs_ctrl, text="Документы тестового набора (как в обычном режиме: добавить -> индексировать)", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).pack(side=LEFT, padx=4)
+        Label(docs_ctrl, text="Документы тестового набора (добавить -> индексировать всеми моделями)", bg=PALETTE["modal_bg"], fg=PALETTE["text"], font=FONTS["small"]).pack(side=LEFT, padx=4)
 
         docs_picker = Frame(docs_frame, bg=PALETTE["modal_bg"])
         docs_picker.pack(fill=X, pady=4)
@@ -907,27 +919,44 @@ class ContextSearchApp:
             if not eval_selected_paths:
                 messagebox.showinfo("Тестирование", "Сначала добавьте документы")
                 return
-            progress = self._open_progress("Индексация документов для тестового набора...")
+            model_keys = [key for _, key in MODEL_CHOICES]
+            progress = self._open_progress("Индексация документов всеми моделями...")
+            indexed_models = 0
             try:
-                ingest_paths(
-                    eval_selected_paths,
-                    splitter=container.splitter,
-                    embedders=container.embedders,
-                    embedding_store=container.embedding_store,
-                    document_repository=container.document_repository,
-                    chunk_repository=container.chunk_repository,
-                    embedding_specs=container.embedding_specs,
-                    bm25_index=container.bm25_index,
-                )
+                for model_key in model_keys:
+                    eval_container = build_default_container(
+                        ContainerConfig(
+                            embedder=model_key,
+                            embedder_models=(model_key,),
+                            rewriter="llm" if self.llm_rewrite_var.get() else "simple",
+                            embedding_store=self.storage_var.get(),
+                            data_root=DATA_ROOT,
+                            local_rewriter_model=self.rewriter_model_var.get().strip() or "Qwen/Qwen2.5-0.5B-Instruct",
+                            local_rewriter_prompt=self.rewriter_prompt_var.get().strip() or "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений.",
+                        )
+                    )
+                    ingest_paths(
+                        eval_selected_paths,
+                        splitter=eval_container.splitter,
+                        embedders=eval_container.embedders,
+                        embedding_store=eval_container.embedding_store,
+                        document_repository=eval_container.document_repository,
+                        chunk_repository=eval_container.chunk_repository,
+                        embedding_specs=eval_container.embedding_specs,
+                        bm25_index=eval_container.bm25_index,
+                    )
+                    if eval_container.evaluation_repository is not None:
+                        eval_container.evaluation_repository.clear_runs()
+                    indexed_models += 1
             finally:
                 progress.destroy()
-            repo.clear_runs()
             labeled_cases.clear()
             eval_selected_paths.clear()
             selected_paths_var.set("0 документов выбрано")
             refresh_docs_list()
             refresh_labels_list()
             refresh_history()
+            messagebox.showinfo("Тестирование", f"Индексация завершена для моделей: {indexed_models}")
 
         self._make_button(docs_picker, text="Добавить файл", command=add_eval_files, variant="secondary").pack(side=LEFT, padx=4)
         self._make_button(docs_picker, text="Добавить папку", command=add_eval_folder, variant="primary").pack(side=LEFT, padx=4)
@@ -1006,7 +1035,7 @@ class ContextSearchApp:
             config = create_experiment_config(
                 embedding_spec_id=spec.id,
                 store_type=self.storage_var.get(),
-                use_bm25=True,
+                use_bm25=use_bm25_var.get(),
                 ranking_mode=rank_var.get(),
                 query_rewriter=("llm" if self.llm_rewrite_var.get() else "none"),
                 top_k=max(1, int(top_k_var.get() or "10")),
@@ -1020,15 +1049,152 @@ class ContextSearchApp:
             messagebox.showinfo("Тестирование", f"Прогон завершен. run_id={run.id}")
             refresh_history()
 
+        def run_full_benchmark() -> None:
+            if not labeled_cases:
+                query_text = query_var.get().strip()
+                selected = docs_list.curselection()
+                if query_text and selected:
+                    relevant_ids = [docs_index[i].id for i in selected if i < len(docs_index)]
+                    if relevant_ids:
+                        labeled_cases.append((query_text, relevant_ids))
+                        refresh_labels_list()
+            if not labeled_cases:
+                messagebox.showwarning("Тестирование", "Добавьте хотя бы одну метку (query -> документы)")
+                return
+
+            try:
+                top_k = max(1, int(top_k_var.get() or "10"))
+            except ValueError:
+                messagebox.showwarning("Тестирование", "Top-K должен быть целым числом")
+                return
+
+            ranking_modes = ["vector", "bm25", "hybrid_rrf", "combsum", "combmnz"]
+            bm25_flags = [False, True]
+            model_keys = [key for _, key in MODEL_CHOICES]
+            rows: list[dict[str, object]] = []
+
+            progress = self._open_progress("Общее тестирование: все модели и режимы...")
+            try:
+                for model_key in model_keys:
+                    eval_container = build_default_container(
+                        ContainerConfig(
+                            embedder=model_key,
+                            embedder_models=(model_key,),
+                            rewriter="llm" if self.llm_rewrite_var.get() else "simple",
+                            embedding_store=self.storage_var.get(),
+                            data_root=DATA_ROOT,
+                            local_rewriter_model=self.rewriter_model_var.get().strip() or "Qwen/Qwen2.5-0.5B-Instruct",
+                            local_rewriter_prompt=self.rewriter_prompt_var.get().strip() or "Перепиши поисковый запрос в соответствии с инструкцией. Верни только новый запрос без пояснений.",
+                        )
+                    )
+                    eval_repo = getattr(eval_container, "evaluation_repository", None)
+                    if eval_repo is None:
+                        continue
+
+                    current_doc_ids = {doc.id for doc in eval_container.document_repository.list()}
+                    suite = create_test_suite(f"{suite_name_var.get().strip() or 'Оценка поиска'} [{model_key}]")
+                    suite.document_ids = list(current_doc_ids)
+                    for q_text, rel_ids in labeled_cases:
+                        filtered = [doc_id for doc_id in rel_ids if doc_id in current_doc_ids]
+                        if filtered:
+                            suite.test_cases.append(create_test_case(q_text, filtered, source="user"))
+                    if not suite.test_cases:
+                        continue
+
+                    spec = self._active_document_spec(eval_container)
+                    if spec is None:
+                        continue
+
+                    for ranking in ranking_modes:
+                        for bm25_flag in bm25_flags:
+                            config = create_experiment_config(
+                                embedding_spec_id=spec.id,
+                                store_type=self.storage_var.get(),
+                                use_bm25=bm25_flag,
+                                ranking_mode=ranking,
+                                query_rewriter=("llm" if self.llm_rewrite_var.get() else "none"),
+                                top_k=top_k,
+                            )
+                            run = run_and_save_experiment(
+                                suite=suite,
+                                config=config,
+                                container=eval_container,
+                                repository=eval_repo,
+                            )
+                            row: dict[str, object] = {
+                                "config_name": f"model={model_key}; ranking={ranking}; bm25={int(bm25_flag)}; top_k={top_k}",
+                                "model": model_key,
+                                "ranking_mode": ranking,
+                                "use_bm25": int(bm25_flag),
+                                "top_k": top_k,
+                                "store_type": self.storage_var.get(),
+                                "embedding_spec_id": spec.id,
+                                "query_rewriter": ("llm" if self.llm_rewrite_var.get() else "none"),
+                                "run_id": run.id,
+                            }
+                            for metric_name, metric_value in sorted(run.aggregate_metrics.items()):
+                                row[metric_name] = float(metric_value)
+                            rows.append(row)
+            finally:
+                progress.destroy()
+
+            if not rows:
+                messagebox.showwarning("Тестирование", "Нет результатов для экспорта")
+                return
+
+            default_name = f"evaluation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            save_path = filedialog.asksaveasfilename(
+                title="Сохранить результаты тестирования",
+                defaultextension=".xlsx",
+                initialfile=default_name,
+                filetypes=[("Excel", "*.xlsx")],
+            )
+            if not save_path:
+                return
+            try:
+                self._export_evaluation_results_xlsx(Path(save_path), rows)
+            except Exception as exc:
+                messagebox.showerror("Тестирование", f"Не удалось сохранить Excel: {exc}")
+                return
+
+            refresh_history()
+            messagebox.showinfo("Тестирование", f"Общий прогон завершен. Результаты: {save_path}")
+
         self._make_button(footer, text="Добавить метку", command=add_label_case, variant="success").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Удалить метку", command=remove_selected_label, variant="danger").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Запустить прогон", command=create_and_run, variant="primary").pack(side=LEFT, padx=4)
+        self._make_button(footer, text="Общий прогон + Excel", command=run_full_benchmark, variant="success").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Обновить историю", command=refresh_history, variant="secondary").pack(side=LEFT, padx=4)
         self._make_button(footer, text="Обновить документы", command=refresh_docs_list, variant="ghost").pack(side=LEFT, padx=4)
 
         refresh_docs_list()
         refresh_labels_list()
         refresh_history()
+
+    def _export_evaluation_results_xlsx(self, path: Path, rows: list[dict[str, object]]) -> None:
+        from openpyxl import Workbook
+
+        base_columns = [
+            "config_name",
+            "model",
+            "ranking_mode",
+            "use_bm25",
+            "top_k",
+            "store_type",
+            "embedding_spec_id",
+            "query_rewriter",
+            "run_id",
+        ]
+        metric_columns = sorted({key for row in rows for key in row.keys() if key not in base_columns})
+        columns = [*base_columns, *metric_columns]
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "evaluation_results"
+        ws.append(columns)
+        for row in rows:
+            ws.append([row.get(col) for col in columns])
+        wb.save(path)
 
     def _open_progress(self, text: str) -> Toplevel:
         modal = Toplevel(self.root)
